@@ -1,0 +1,20 @@
+{
+  "name": "naive.js",
+  "version": "0.0.1",
+  "description": "",
+  "main": "dist/cjs/naive.js",
+  "scripts": {
+    "test": "NODE_EVN=dev webpack --config test/webpack.test.js",
+    "dev": "rollup --watch --config scripts/rollup.build.js",
+    "build": "rollup --config scripts/rollup.build.js"
+  },
+  "keywords": [],
+  "author": "wu.zijie.software@gmail.com",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "babel-preset-es2015-rollup": "^3.0.0",
+    "rollup": "^0.41.4",
+    "rollup-plugin-babel": "^2.7.1",
+    "rollup-watch": "^3.2.2"
+  }
+}
