@@ -62,6 +62,14 @@ export function after(el, target) {
   }
 }
 
+export function appendChild (el, target) {
+  target.appendChild(el);
+}
+
+export function setAttr (node, attr, value) {
+  node.setAttribute(attr, value);
+}
+
 export function hasAttr(node, name) {
   return node.hasAttribute(name);
 }

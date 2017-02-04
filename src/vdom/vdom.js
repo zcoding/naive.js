@@ -1,2 +1,2 @@
 export { diff } from './diff';
-export { applyPatch } from './patch';
+export { patch } from './patch';
