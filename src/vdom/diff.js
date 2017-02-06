@@ -10,7 +10,9 @@ export function diff (oldTree, newTree) {
   if (isArray(oldTree)) {
     const currentPatches = [];
     diffChildren(oldTree, newTree, 0, patches, currentPatches);
-    patches[0] = currentPatches;
+    if (currentPatches.length) {
+      patches[0] = currentPatches;
+    }
   } else {
     diffWalk(oldTree, newTree, index, patches);
   }
@@ -39,7 +41,9 @@ function diffWalk (pNode, nNode, index, patches) {
   } else { // 类型不一样，绝对要替换
     currentPatches.push({type: PATCH.REPLACE, node: nNode});
   }
-  patches[index] = currentPatches;
+  if (currentPatches.length) {
+    patches[index] = currentPatches;
+  }
 }
 
 function diffProps (oldTree, newTree) {

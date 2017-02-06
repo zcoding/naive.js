@@ -5,16 +5,18 @@ import { isArray, warn, error, extend, clone, noop, isFunction, isPlainObject } 
 import { parseExpression } from './parser';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
-import { getObjectFromPath } from './parser';
 
 const templateHelpers = {
-  "if": function () { return false; },
-  "each": function (item, list, state, h, node) {
-    return [];
+  "if": function (condition, options) {
+    return condition ? h(options) : condition;
   },
-  "_": function (state, item) {
-    return getObjectFromPath(state, item);
-  },
+  "each": function (list, createItem) {
+    const nodes = [];
+    for (let i = 0; i < list.length; ++i) {
+      nodes.push(h(createItem(list[i], i)));
+    }
+    return nodes;
+  }
 };
 
 export default function Naive (options) {
@@ -38,7 +40,7 @@ export default function Naive (options) {
   this._init(options);
 }
 
-Naive.createElement = h;
+// Naive.createVElement = h;
 
 const prtt = Naive.prototype;
 
@@ -57,7 +59,7 @@ prtt.update = function update () {
   this.vdom = this.render();
   // console.log(preVdom, this.vdom);
   const patches = diff(preVdom, this.vdom);
-  // console.log(patches);
+  console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {

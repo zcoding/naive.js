@@ -191,6 +191,7 @@ var PATCH = {
   TEXT: 5 // 替换文本
 };
 
+// @TODO patch 的 index 不对？
 function patch(context, domNode, patches) {
   var walker = { index: 0 };
   dfsWalk(context, domNode, walker, patches);
@@ -205,7 +206,7 @@ function dfsWalk(context, domNode, walker, patches) {
     walker.index++;
     dfsWalk(context, child, walker, patches);
   }
-  if (currentPatches.length) {
+  if (currentPatches) {
     applyPatches(context, domNode, currentPatches);
   }
 }
@@ -393,7 +394,9 @@ function diff(oldTree, newTree) {
   if (isArray(oldTree)) {
     var currentPatches = [];
     diffChildren(oldTree, newTree, 0, patches, currentPatches);
-    patches[0] = currentPatches;
+    if (currentPatches.length) {
+      patches[0] = currentPatches;
+    }
   } else {
     diffWalk(oldTree, newTree, index, patches);
   }
@@ -427,7 +430,9 @@ function diffWalk(pNode, nNode, index, patches) {
     // 类型不一样，绝对要替换
     currentPatches.push({ type: PATCH.REPLACE, node: nNode });
   }
-  patches[index] = currentPatches;
+  if (currentPatches.length) {
+    patches[index] = currentPatches;
+  }
 }
 
 function diffProps(oldTree, newTree) {
@@ -471,6 +476,8 @@ function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) 
 function h(tagName, props, children, key) {
   if (isVNode(tagName) || isVText(tagName)) {
     return tagName;
+  } else if (isPlainObject(tagName)) {
+    return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
   } else if (isArray(tagName)) {
     var list = [];
     for (var i = 0; i < tagName.length; ++i) {
@@ -679,18 +686,6 @@ function parsePath(path) {
   return props;
 }
 
-function getObjectFromPath(data, path) {
-  var props = parsePath(path);
-  var result = props.length > 0 ? data : undefined;
-  for (var i = 0; i < props.length; ++i) {
-    result = result[props[i]];
-    if (!result) {
-      break;
-    }
-  }
-  return result;
-}
-
 function addHook(hookName, callback) {
   var callbacks = this._hooks[hookName];
   if (!callbacks) {
@@ -735,14 +730,15 @@ function NaiveException(message) {
 }
 
 var templateHelpers = {
-  "if": function _if() {
-    return false;
+  "if": function _if(condition, options) {
+    return condition ? h(options) : condition;
   },
-  "each": function each(item, list, state, h$$1, node) {
-    return [];
-  },
-  "_": function _(state, item) {
-    return getObjectFromPath(state, item);
+  "each": function each(list, createItem) {
+    var nodes = [];
+    for (var i = 0; i < list.length; ++i) {
+      nodes.push(h(createItem(list[i], i)));
+    }
+    return nodes;
   }
 };
 
@@ -767,7 +763,7 @@ function Naive(options) {
   this._init(options);
 }
 
-Naive.createElement = h;
+// Naive.createVElement = h;
 
 var prtt = Naive.prototype;
 
@@ -787,7 +783,7 @@ prtt.update = function update() {
   this.vdom = this.render();
   // console.log(preVdom, this.vdom);
   var patches = diff(preVdom, this.vdom);
-  // console.log(patches);
+  console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {

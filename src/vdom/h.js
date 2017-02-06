@@ -1,11 +1,13 @@
 import VNode from './vnode';
 import VText from './vtext';
-import { isArray } from '../utils';
+import { isArray, isPlainObject } from '../utils';
 import { isVNode, isVText } from './utils';
 
 export default function h (tagName, props, children, key) {
   if (isVNode(tagName) || isVText(tagName)) {
     return tagName;
+  } else if (isPlainObject(tagName)) {
+    return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
   } else if (isArray(tagName)) {
     const list = [];
     for (let i = 0; i < tagName.length; ++i) {
