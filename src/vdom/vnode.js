@@ -1,12 +1,13 @@
 import { createElement, setAttr, appendChild } from '../dom';
 import VText from './vtext';
 import { isVNode, isVText } from './utils';
+import { isArray, isFunction } from '../utils';
 
 export default function VNode (tagName, props, children, key) {
   this.tagName = tagName;
   this.props = props || {};
   this.key = key ? String(key) : undefined; // key 用来标识节点，方便 diff
-  const childNodes = [];
+  let childNodes = [];
   children = children || [];
   for (let i = 0; i < children.length; ++i) {
     const child = children[i];
@@ -14,8 +15,10 @@ export default function VNode (tagName, props, children, key) {
       childNodes.push(child);
     } else if (typeof child === 'string') {
       childNodes.push(new VText(child));
+    } else if (isArray(child)) {
+      childNodes = childNodes.concat(child);
     } else {
-      // error
+      // ignore
     }
   }
   this.children = childNodes;
@@ -55,8 +58,9 @@ VNode.prototype.render = function vdom2dom(context) {
     if (checkAttrDirective(p)) {
       if (isEventDirective(p)) {
         const eventName = p.slice(1);
+        const handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
         attachEvent(el, eventName, function handler(evt) {
-          props[p].call(context, evt);
+          handlerFunc.call(context, evt);
         });
       } else {
         // 处理指令

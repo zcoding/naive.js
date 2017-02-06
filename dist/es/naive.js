@@ -109,8 +109,10 @@ function VNode(tagName, props, children, key) {
       childNodes.push(child);
     } else if (typeof child === 'string') {
       childNodes.push(new VText(child));
+    } else if (isArray(child)) {
+      childNodes = childNodes.concat(child);
     } else {
-      // error
+      // ignore
     }
   }
   this.children = childNodes;
@@ -146,24 +148,22 @@ function attachEvent(el, eventName, handler) {
 VNode.prototype.render = function vdom2dom(context) {
   var el = createElement(this.tagName);
   var props = this.props;
-
-  var _loop = function _loop(p) {
+  for (var p in props) {
     if (checkAttrDirective(p)) {
       if (isEventDirective(p)) {
-        var eventName = p.slice(1);
-        attachEvent(el, eventName, function handler(evt) {
-          props[p].call(context, evt);
-        });
+        (function () {
+          var eventName = p.slice(1);
+          var handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
+          attachEvent(el, eventName, function handler(evt) {
+            handlerFunc.call(context, evt);
+          });
+        })();
       } else {
         // 处理指令
       }
     } else {
       setAttr(el, p, props[p]);
     }
-  };
-
-  for (var p in props) {
-    _loop(p);
   }
   for (var i = 0; i < this.children.length; ++i) {
     appendChild(this.children[i].render(context), el);
@@ -189,19 +189,20 @@ var PATCH = {
 };
 
 function patch(context, domNode, patches) {
-  dfsWalk(context, domNode, 0, patches);
+  var walker = { index: 0 };
+  dfsWalk(context, domNode, walker, patches);
 }
 
-function dfsWalk(context, domNode, index, patches) {
-  var currentPatches = patches[index];
+function dfsWalk(context, domNode, walker, patches) {
+  var currentPatches = patches[walker.index];
 
   var len = domNode.childNodes ? domNode.childNodes.length : 0;
   for (var i = 0; i < len; i++) {
     var child = domNode.childNodes[i];
-    index++;
-    dfsWalk(context, child, index, patches);
+    walker.index++;
+    dfsWalk(context, child, walker, patches);
   }
-  if (currentPatches) {
+  if (currentPatches.length) {
     applyPatches(context, domNode, currentPatches);
   }
 }
@@ -360,8 +361,17 @@ function listDiff(pList, nList) {
         if (!pKeys.hasOwnProperty(nItemKey)) {
           // 旧列表中不存在，新节点
           insert(n, nItem); // 在位置 n 插入新节点 nItem
-        } else {// 旧列表中存在，需要移位（移位操作包括删除和插入两者中的一个或两个）
+        } else {
+          // 旧列表中存在，需要移位（移位操作包括删除和插入两者中的一个或两个）
+          var nsItemKey = simulateList[s + 1].key;
+          if (nsItemKey === nItemKey) {
+            remove(n);
+            simulateList.splice(s, 1);
+            s++;
+          } else {
+            insert(n, nItem);
           }
+        }
       }
     } else {
       // 旧列表该位置为空，直接插入
@@ -377,7 +387,13 @@ function listDiff(pList, nList) {
 function diff(oldTree, newTree) {
   var index = 0;
   var patches = {};
-  diffWalk(oldTree, newTree, index, patches);
+  if (isArray(oldTree)) {
+    var currentPatches = [];
+    diffChildren(oldTree, newTree, 0, patches, currentPatches);
+    patches[0] = currentPatches;
+  } else {
+    diffWalk(oldTree, newTree, index, patches);
+  }
   return patches;
 }
 
@@ -449,8 +465,20 @@ function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) 
   }
 }
 
-function h(tagName, props, children) {
-  return new VNode(tagName, props, children);
+function h(tagName, props, children, key) {
+  if (isVNode(tagName) || isVText(tagName)) {
+    return tagName;
+  } else if (isArray(tagName)) {
+    var list = [];
+    for (var i = 0; i < tagName.length; ++i) {
+      list.push(h(tagName[i]));
+    }
+    return list;
+  } else if (arguments.length < 2) {
+    return new VText(tagName);
+  } else {
+    return new VNode(tagName, props, children, key);
+  }
 }
 
 /**
@@ -648,6 +676,18 @@ function parsePath(path) {
   return props;
 }
 
+function getObjectFromPath(data, path) {
+  var props = parsePath(path);
+  var result = props.length > 0 ? data : undefined;
+  for (var i = 0; i < props.length; ++i) {
+    result = result[props[i]];
+    if (!result) {
+      break;
+    }
+  }
+  return result;
+}
+
 function addHook(hookName, callback) {
   var callbacks = this._hooks[hookName];
   if (!callbacks) {
@@ -691,6 +731,18 @@ function NaiveException(message) {
   this.message = message;
 }
 
+var templateHelpers = {
+  "if": function _if() {
+    return false;
+  },
+  "each": function each(item, list, state, h$$1, node) {
+    return [];
+  },
+  "_": function _(state, item) {
+    return getObjectFromPath(state, item);
+  }
+};
+
 function Naive(options) {
   options = options || {};
   this._hooks = {};
@@ -706,7 +758,7 @@ function Naive(options) {
     this.state = {};
   }
   this.render = function render() {
-    return options.render.call(this, h);
+    return options.render.call(this, h, templateHelpers);
   };
   this.ele = null;
   this._init(options);
@@ -732,7 +784,7 @@ prtt.update = function update() {
   this.vdom = this.render();
   // console.log(preVdom, this.vdom);
   var patches = diff(preVdom, this.vdom);
-  console.log(patches);
+  // console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {
@@ -770,14 +822,18 @@ prtt.mount = function mount(selector) {
   if (vdom.length) {
     // fragment
     var docFragment = createDocumentFragment();
+    var simFragment = { childNodes: [] };
     for (var i = 0; i < vdom.length; ++i) {
-      appendChild(typeof vdom[i] === 'string' ? createTextNode(vdom[i]) : vdom[i].render(this), docFragment);
+      var node = vdom[i].render(this);
+      simFragment.childNodes.push(node);
+      appendChild(node, docFragment);
     }
-    this.ele = docFragment;
+    this.ele = simFragment;
+    replaceNode(docFragment, mountPoint);
   } else {
     this.ele = vdom.render(this);
+    replaceNode(this.ele, mountPoint);
   }
-  replaceNode(this.ele, mountPoint);
   this.mounted = true;
   this._callHooks('mounted');
 };

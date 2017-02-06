@@ -10,19 +10,20 @@ export const PATCH = {
 };
 
 export function patch (context, domNode, patches) {
-  dfsWalk(context, domNode, 0, patches);
+  const walker = {index: 0};
+  dfsWalk(context, domNode, walker, patches);
 }
 
-function dfsWalk (context, domNode, index, patches) {
-  const currentPatches = patches[index];
+function dfsWalk (context, domNode, walker, patches) {
+  const currentPatches = patches[walker.index];
 
   const len = domNode.childNodes ? domNode.childNodes.length : 0;
   for (let i = 0; i < len; i++) {
     const child = domNode.childNodes[i];
-    index++;
-    dfsWalk(context, child, index, patches);
+    walker.index++;
+    dfsWalk(context, child, walker, patches);
   }
-  if (currentPatches) {
+  if (currentPatches.length) {
     applyPatches(context, domNode, currentPatches);
   }
 }

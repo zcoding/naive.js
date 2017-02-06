@@ -4,11 +4,18 @@ import h from './vdom/h';
 import { isArray, warn, error, extend, clone, noop, isFunction, isPlainObject } from './utils';
 import { parseExpression } from './parser';
 import { addHook, removeHook, callHooks } from './api/hooks';
+import { NaiveException } from './exception';
+import { getObjectFromPath } from './parser';
 
-function NaiveException (message) {
-  this.name = 'NaiveException';
-  this.message = message;
-}
+const templateHelpers = {
+  "if": function () { return false; },
+  "each": function (item, list, state, h, node) {
+    return [];
+  },
+  "_": function (state, item) {
+    return getObjectFromPath(state, item);
+  },
+};
 
 export default function Naive (options) {
   options = options || {};
@@ -25,7 +32,7 @@ export default function Naive (options) {
     this.state = {};
   }
   this.render = function render () {
-    return options.render.call(this, h);
+    return options.render.call(this, h, templateHelpers);
   };
   this.ele = null;
   this._init(options);
@@ -50,7 +57,7 @@ prtt.update = function update () {
   this.vdom = this.render();
   // console.log(preVdom, this.vdom);
   const patches = diff(preVdom, this.vdom);
-  console.log(patches);
+  // console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {
@@ -87,14 +94,18 @@ prtt.mount = function mount (selector) {
   const vdom = this.vdom;
   if (vdom.length) { // fragment
     const docFragment = createDocumentFragment();
+    const simFragment = { childNodes: [] };
     for (let i = 0; i < vdom.length; ++i) {
-      appendChild(typeof vdom[i] === 'string' ? createTextNode(vdom[i]) : vdom[i].render(this), docFragment);
+      const node = vdom[i].render(this);
+      simFragment.childNodes.push(node);
+      appendChild(node, docFragment);
     }
-    this.ele = docFragment;
+    this.ele = simFragment;
+    replaceNode(docFragment, mountPoint);
   } else {
     this.ele = vdom.render(this);
+    replaceNode(this.ele, mountPoint);
   }
-  replaceNode(this.ele, mountPoint);
   this.mounted = true;
   this._callHooks('mounted');
 };

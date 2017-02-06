@@ -78,6 +78,14 @@ export default function listDiff (pList, nList) {
         if (!pKeys.hasOwnProperty(nItemKey)) { // 旧列表中不存在，新节点
           insert(n, nItem); // 在位置 n 插入新节点 nItem
         } else { // 旧列表中存在，需要移位（移位操作包括删除和插入两者中的一个或两个）
+          const nsItemKey = simulateList[s + 1].key;
+          if (nsItemKey === nItemKey) {
+            remove(n);
+            simulateList.splice(s, 1);
+            s++;
+          } else {
+            insert(n, nItem);
+          }
         }
       }
     } else { // 旧列表该位置为空，直接插入

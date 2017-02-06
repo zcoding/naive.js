@@ -1,12 +1,19 @@
 import { isVNode, isVText } from './utils';
 import listDiff from './list-diff';
 import { PATCH } from './patch';
+import { isArray } from '../utils';
 
 // diff two vdom node
 export function diff (oldTree, newTree) {
   let index = 0;
   let patches = {};
-  diffWalk(oldTree, newTree, index, patches);
+  if (isArray(oldTree)) {
+    const currentPatches = [];
+    diffChildren(oldTree, newTree, 0, patches, currentPatches);
+    patches[0] = currentPatches;
+  } else {
+    diffWalk(oldTree, newTree, index, patches);
+  }
   return patches;
 }
 
