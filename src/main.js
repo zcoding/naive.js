@@ -1,8 +1,7 @@
-import { getElement, createElement, removeNode, createTextNode, createDocumentFragment, appendChild, replaceNode } from './dom';
+import { getElement, createDocumentFragment, appendChild, replaceNode } from './dom';
 import { diff, patch } from './vdom/vdom';
 import h from './vdom/h';
-import { isArray, warn, error, extend, clone, noop, isFunction, isPlainObject } from './utils';
-import { parseExpression } from './parser';
+import { warn, extend, isFunction, isPlainObject } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
 
@@ -13,7 +12,12 @@ const templateHelpers = {
   "each": function (list, createItem) {
     const nodes = [];
     for (let i = 0; i < list.length; ++i) {
-      nodes.push(h(createItem(list[i], i)));
+      const item = list[i];
+      let key = i;
+      if ('id' in item) {
+        key = item['id'];
+      }
+      nodes.push(h(createItem(item, key)));
     }
     return nodes;
   }
@@ -24,13 +28,13 @@ export default function Naive (options) {
   this._hooks = {};
   if (!isFunction(options.state)) {
     // 必须是 function
-    throw new NaiveException('state 必须是 Function');
+    throw new NaiveException('state 必须是 [Function]');
   }
   const _state = options.state();
   if (isPlainObject(_state)) {
     this.state = _state;
   } else {
-    warn('state 必须是 plain object');
+    warn('state 必须返回 [Plain Object]');
     this.state = {};
   }
   this.render = function render () {
@@ -57,7 +61,7 @@ prtt.update = function update () {
   }
   const preVdom = this.vdom;
   this.vdom = this.render();
-  // console.log(preVdom, this.vdom);
+  console.log(preVdom, this.vdom);
   const patches = diff(preVdom, this.vdom);
   console.log(patches);
   if (patches) {

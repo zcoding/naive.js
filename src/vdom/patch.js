@@ -9,7 +9,6 @@ export const PATCH = {
   TEXT: 5 // 替换文本
 };
 
-// @TODO patch 的 index 不对？
 export function patch (context, domNode, patches) {
   const walker = {index: 0};
   dfsWalk(context, domNode, walker, patches);

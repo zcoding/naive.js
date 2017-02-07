@@ -188,7 +188,6 @@ var PATCH = {
   TEXT: 5 // 替换文本
 };
 
-// @TODO patch 的 index 不对？
 function patch(context, domNode, patches) {
   var walker = { index: 0 };
   dfsWalk(context, domNode, walker, patches);
@@ -488,201 +487,6 @@ function h(tagName, props, children, key) {
   }
 }
 
-/**
- * 双向链表实现的使用 LRU 算法的缓存
- * 缓存最近最常用的项目，当缓存满时丢弃最近最少用的项目
- *
- * @param {Number} 缓存最大限制
- * @constructor
- */
-
-function Cache(limit) {
-  this.size = 0; // 缓存大小
-  this.limit = limit; // 缓存大小最大限制
-  this.head = this.tail = undefined; // 头尾指针
-  this._keymap = Object.create(null); // 缓存映射表
-}
-
-var p = Cache.prototype;
-
-/**
- * 将 <key> <value> 键值对存储到缓存映射表
- * 如果缓存满了，删除一个节点让出空间给新的缓存，并返回被删的节点
- * 否则返回 undefined
- *
- * @param {String} 键
- * @param {*} 值
- * @return {Entry|undefined}
- */
-
-p.put = function (key, value) {
-  var removed;
-
-  var entry = this.get(key, true); // 先查看是否已经有缓存，如果有，只需要更新它的 value 就可以了
-  if (!entry) {
-    if (this.size === this.limit) {
-      // 缓存满了
-      removed = this.shift();
-    }
-    entry = {
-      key: key
-    };
-    this._keymap[key] = entry;
-    if (this.tail) {
-      this.tail.newer = entry;
-      entry.older = this.tail;
-    } else {
-      this.head = entry;
-    }
-    this.tail = entry; // 将这个项目作为最新的插入缓存
-    this.size++;
-  }
-  entry.value = value;
-
-  return removed;
-};
-
-/**
- * 从缓存中清除最近最少使用（放得最久的）项目
- * 返回被清除的项目，如果缓存为空就返回 undefined
- */
-
-p.shift = function () {
-  var entry = this.head;
-  if (entry) {
-    this.head = this.head.newer; // 头部的是最旧的，所以要从头部开始清除
-    this.head.older = undefined;
-    entry.newer = entry.older = undefined;
-    this._keymap[entry.key] = undefined;
-    this.size--;
-  }
-  return entry;
-};
-
-/**
- * 获取并且注册最近使用的 <key>
- * 返回 <key> 对应的值
- * 如果缓存中找不到这个 <key> 就返回 undefined
- *
- * @param {String} 键
- * @param {Boolean} 是否返回整个 entry ，如果为 false 则只返回 value
- * @return {Entry|*} 返回 Entry 或者它的值，或者 undefined
- */
-
-p.get = function (key, returnEntry) {
-  var entry = this._keymap[key];
-  if (entry === undefined) return; // 缓存不存在，直接返回 undefined
-  if (entry === this.tail) {
-    // 缓存是最新的，直接返回这个缓存项（或者它的值）
-    return returnEntry ? entry : entry.value;
-  }
-  // HEAD--------------TAIL
-  //   <.older   .newer>
-  //  <--- add direction --
-  //   A  B  C  <D>  E
-  if (entry.newer) {
-    // 如果缓存不是最新的
-    if (entry === this.head) {
-      // 如果缓存是最旧的
-      this.head = entry.newer; // 将比它新的作为最旧的
-    }
-    entry.newer.older = entry.older; // C <-- E. 将它的后一个作为前一个的最旧
-  }
-  if (entry.older) {
-    // 如果有比它更旧的
-    entry.older.newer = entry.newer; // C. --> E 将它的前一个作为后一个的最新
-  }
-  entry.newer = undefined; // D --x // 它本身没有更新的
-  entry.older = this.tail; // D. --> E
-  if (this.tail) {
-    this.tail.newer = entry; // E. <-- D
-  }
-  this.tail = entry; // 将自己作为最新的
-  return returnEntry ? entry : entry.value;
-};
-
-var pathCache = new Cache(1000);
-
-
-
-var restoreRE = /"(\d+)"/g;
-var saved = [];
-
-function restore(str, i) {
-  return saved[i];
-}
-
-/**
- * 解析一个表达式
- * @param {String} expression 表达式字符串
- * @param {String} scope 作用域限制
- * @return {Function} 一个函数，用来返回表达式的值
- */
-
-
-
-
-/**
- * parsePath 解析取值路径，返回真正的值，如果找不到，返回 undefined
- *
- * @param {Object} data
- * @param {String} path
- * @return {*} value
- * @throw {Error} 不合法的路径
- *
- * @example
- * parsePath('a.b.c') === ['a', 'b', 'c']
- */
-function parsePath(path) {
-  var hit = pathCache.get(path);
-  if (hit) {
-    return hit;
-  }
-  // data.a.b.c 👍
-  // data.a["b"].c 👍
-  // data["a"]["b"]["c"] 👍
-  // data.a["b.c"] 👍
-  // data["a.b.c"] 👍
-  // data.a[b] 👎
-  // data.a[b.c] 👎
-  var parts = path.split(/\[|\]/g),
-      i = 0;
-  var props = [];
-  while (i < parts.length) {
-    var match1 = /^(\.)?[^\'\"\.\s]+(\.[^\'\"\.\s]+)*$/.test(parts[i]);
-    var match2 = /(^\s*\'.+\'\s*$)|(^\s*\".+\"\s*$)|(^\s*$)/.test(parts[i]);
-    if (!(match1 || match2)) {
-      throw new Error("不合法的路径: " + path);
-    }
-    if (match1) {
-      var _props = parts[i].split('.'),
-          j = 0;
-      while (j < _props.length) {
-        if (_props[j] === '') {
-          if (i !== 0) {
-            j++;
-            continue;
-          } else {
-            throw new Error("不合法的路径: " + path);
-          }
-        } else {
-          props.push(_props[j]);
-        }
-        j++;
-      }
-    } else {
-      // match2
-      if (!/^\s*$/.test(parts[i])) {
-        var _prop = parts[i].replace(/^\s*[\"\']|[\'\"]\s*$/g, '');
-        props.push(_prop);
-      }
-    }
-    i++;
-  }
-  pathCache.put(path, props);
-  return props;
-}
-
 function addHook(hookName, callback) {
   var callbacks = this._hooks[hookName];
   if (!callbacks) {
@@ -733,7 +537,12 @@ var templateHelpers = {
   "each": function each(list, createItem) {
     var nodes = [];
     for (var i = 0; i < list.length; ++i) {
-      nodes.push(h(createItem(list[i], i)));
+      var item = list[i];
+      var key = i;
+      if ('id' in item) {
+        key = item['id'];
+      }
+      nodes.push(h(createItem(item, key)));
     }
     return nodes;
   }
@@ -744,13 +553,13 @@ function Naive(options) {
   this._hooks = {};
   if (!isFunction(options.state)) {
     // 必须是 function
-    throw new NaiveException('state 必须是 Function');
+    throw new NaiveException('state 必须是 [Function]');
   }
   var _state = options.state();
   if (isPlainObject(_state)) {
     this.state = _state;
   } else {
-    warn('state 必须是 plain object');
+    warn('state 必须返回 [Plain Object]');
     this.state = {};
   }
   this.render = function render() {
@@ -778,7 +587,7 @@ prtt.update = function update() {
   }
   var preVdom = this.vdom;
   this.vdom = this.render();
-  // console.log(preVdom, this.vdom);
+  console.log(preVdom, this.vdom);
   var patches = diff(preVdom, this.vdom);
   console.log(patches);
   if (patches) {
