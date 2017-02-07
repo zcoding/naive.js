@@ -1,7 +1,7 @@
 import { isVNode, isVText } from './utils';
 import listDiff from './list-diff';
 import { PATCH } from './patch';
-import { isArray } from '../utils';
+import { isArray, isPlainObject } from '../utils';
 
 // diff two vdom node
 export function diff (oldTree, newTree) {
@@ -46,12 +46,26 @@ function diffWalk (pNode, nNode, index, patches) {
   }
 }
 
+// 快速比较两个对象是否“相等”
+function objectEquals (a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function diffProps (oldTree, newTree) {
   let oldTreeProps = oldTree.props;
   let newTreeProps = newTree.props;
   let propsPatches = {}, count = 0;
   for (let p in oldTreeProps) {
-    if (!newTreeProps.hasOwnProperty(p) || newTreeProps[p] !== oldTreeProps[p]) {
+    // 如果是指令属性，而且 value 是对象，则比较对象
+    if (!newTreeProps.hasOwnProperty(p)) {
+      propsPatches[p] = newTreeProps[p];
+      count += 1;
+    } else if (isPlainObject(newTreeProps[p])) {
+      if (!objectEquals(newTreeProps[p], oldTreeProps[p])) {
+        propsPatches[p] = newTreeProps[p];
+        count += 1;
+      }
+    } else if (newTreeProps[p] !== oldTreeProps[p]) {
       propsPatches[p] = newTreeProps[p];
       count += 1;
     }

@@ -18,7 +18,9 @@ var isArray = Array.isArray ? Array.isArray : function isArray(obj) {
   return Object.prototype.toString.call(obj) === '[object Array]';
 };
 
-
+function isUndefined(obj) {
+  return typeof obj === 'undefined';
+}
 
 
 
@@ -69,9 +71,7 @@ function query(selector, context) {
  */
 
 
-function removeNode(node) {
-  node.parentNode.removeChild(node);
-}
+
 
 
 
@@ -91,6 +91,61 @@ function setAttr(node, attr, value) {
   node.setAttribute(attr, value);
 }
 
+
+
+
+
+
+
+var supportClassList = !isUndefined(document.createElement('div').classList);
+
+var hasClass = supportClassList ? function (element, classes) {
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  var contains = true;
+  for (var i = 0; i < classes.length; ++i) {
+    if (!element.classList.contains(classes[i])) {
+      contains = false;
+      break;
+    }
+  }
+  return contains;
+} : function (element, classes) {
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  var contains = true,
+      tmp = element.className;
+  for (var i = 0; i < classes.length; ++i) {
+    if (tmp.indexOf(classes[i]) === -1) {
+      contains = false;
+      break;
+    }
+  }
+  return contains;
+};
+
+var addClass = supportClassList ? function (element, classes) {
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  element.classList.add.apply(element.classList, classes);
+  return element;
+} : function (element, classes) {
+  var tmp = element.className;
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  classes.forEach(function (c) {
+    if (!hasClass(element, c)) {
+      tmp = tmp.replace(/\s+|$/, ' ' + classes);
+    }
+  });
+  element.className = tmp;
+  return element;
+};
+
 function VText(text) {
   this.data = text;
 }
@@ -98,6 +153,25 @@ function VText(text) {
 VText.prototype.render = function vdom2dom() {
   return createTextNode(this.data);
 };
+
+function handleDirective(directive, value, element, context) {
+  switch (directive) {
+    case 'show':
+      element.style.display = value ? '' : 'none';
+      break;
+    case 'class':
+      for (var c in value) {
+        if (value[c]) {
+          addClass(element, c);
+        } else {
+          removeClass(element, c);
+        }
+      }
+      break;
+    default:
+      break;
+  }
+}
 
 function VNode(tagName, props, children, key) {
   this.tagName = tagName;
@@ -162,6 +236,11 @@ VNode.prototype.render = function vdom2dom(context) {
         })();
       } else {
         // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), props[p], el, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), props[p], el, context);
+        } else {}
       }
     } else {
       setAttr(el, p, props[p]);
@@ -238,7 +317,7 @@ function isEventDirective$1(attr) {
   );
 }
 
-function patchProps(domNode, patch) {
+function patchProps(domNode, patch, context) {
   for (var p in patch.props) {
     if (patch.props.hasOwnProperty(p)) {
       // 检查是否指令属性
@@ -246,8 +325,15 @@ function patchProps(domNode, patch) {
         if (isEventDirective$1(p)) {
           // removeEventListener
           // addEventListener
-        } else {// 其他指令属性
-          }
+        } else {
+          // 其他指令属性
+          // 处理指令
+          if (/^n-/.test(p)) {
+            handleDirective(p.slice(2), patch.props[p], domNode, context);
+          } else if (/^:/.test(p)) {
+            handleDirective(p.slice(1), patch.props[p], domNode, context);
+          } else {}
+        }
       } else {
         // 普通属性
         setAttr(domNode, p, patch.props[p]);
@@ -267,7 +353,7 @@ function applyPatches(context, domNode, patches) {
         break;
       case PATCH.PROPS:
         // 属性修改
-        patchProps(domNode, _patch);
+        patchProps(domNode, _patch, context);
         break;
       case PATCH.TEXT:
         // 替换文本内容
@@ -386,6 +472,7 @@ function listDiff(pList, nList) {
   };
 }
 
+// diff two vdom node
 function diff(oldTree, newTree) {
   var index = 0;
   var patches = {};
@@ -433,13 +520,27 @@ function diffWalk(pNode, nNode, index, patches) {
   }
 }
 
+// 快速比较两个对象是否“相等”
+function objectEquals(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function diffProps(oldTree, newTree) {
   var oldTreeProps = oldTree.props;
   var newTreeProps = newTree.props;
   var propsPatches = {},
       count = 0;
   for (var p in oldTreeProps) {
-    if (!newTreeProps.hasOwnProperty(p) || newTreeProps[p] !== oldTreeProps[p]) {
+    // 如果是指令属性，而且 value 是对象，则比较对象
+    if (!newTreeProps.hasOwnProperty(p)) {
+      propsPatches[p] = newTreeProps[p];
+      count += 1;
+    } else if (isPlainObject(newTreeProps[p])) {
+      if (!objectEquals(newTreeProps[p], oldTreeProps[p])) {
+        propsPatches[p] = newTreeProps[p];
+        count += 1;
+      }
+    } else if (newTreeProps[p] !== oldTreeProps[p]) {
       propsPatches[p] = newTreeProps[p];
       count += 1;
     }
@@ -540,10 +641,7 @@ var templateHelpers = {
     var nodes = [];
     for (var i = 0; i < list.length; ++i) {
       var item = list[i];
-      var key = i;
-      if ('id' in item) {
-        key = item['id'];
-      }
+      var key = 'id' in item ? item['id'] : i;
       nodes.push(h(createItem(item, key)));
     }
     return nodes;

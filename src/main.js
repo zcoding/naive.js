@@ -13,10 +13,7 @@ const templateHelpers = {
     const nodes = [];
     for (let i = 0; i < list.length; ++i) {
       const item = list[i];
-      let key = i;
-      if ('id' in item) {
-        key = item['id'];
-      }
+      const key = 'id' in item ? item['id'] : i;
       nodes.push(h(createItem(item, key)));
     }
     return nodes;

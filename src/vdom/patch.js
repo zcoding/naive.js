@@ -1,4 +1,5 @@
-import { setAttr, replaceNode, removeNode } from '../dom';
+import { setAttr, replaceNode } from '../dom';
+import { handleDirective } from '../directive';
 
 export const PATCH = {
   REPLACE: 0, // 替换节点
@@ -54,7 +55,7 @@ function isEventDirective (attr) {
   return /^@/.test(attr);
 }
 
-function patchProps (domNode, patch) {
+function patchProps (domNode, patch, context) {
   for (let p in patch.props) {
     if (patch.props.hasOwnProperty(p)) {
       // 检查是否指令属性
@@ -63,6 +64,12 @@ function patchProps (domNode, patch) {
           // removeEventListener
           // addEventListener
         } else { // 其他指令属性
+          // 处理指令
+          if (/^n-/.test(p)) {
+            handleDirective(p.slice(2), patch.props[p], domNode, context);
+          } else if (/^:/.test(p)) {
+            handleDirective(p.slice(1), patch.props[p], domNode, context);
+          } else {}
         }
       } else { // 普通属性
         setAttr(domNode, p, patch.props[p]);
@@ -80,7 +87,7 @@ function applyPatches (context, domNode, patches) {
         replaceNode(patch.node.render(context), domNode);
         break;
       case PATCH.PROPS: // 属性修改
-        patchProps(domNode, patch);
+        patchProps(domNode, patch, context);
         break;
       case PATCH.TEXT: // 替换文本内容
         domNode.data = patch.data;

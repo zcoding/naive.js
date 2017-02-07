@@ -2,6 +2,7 @@ import { createElement, setAttr, appendChild } from '../dom';
 import VText from './vtext';
 import { isVNode, isVText } from './utils';
 import { isArray, isFunction } from '../utils';
+import { handleDirective } from '../directive';
 
 export default function VNode (tagName, props, children, key) {
   this.tagName = tagName;
@@ -64,6 +65,11 @@ VNode.prototype.render = function vdom2dom(context) {
         });
       } else {
         // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), props[p], el, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), props[p], el, context);
+        } else {}
       }
     } else {
       setAttr(el, p, props[p]);
