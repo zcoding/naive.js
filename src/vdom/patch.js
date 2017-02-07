@@ -1,4 +1,4 @@
-import { setAttr, replaceNode } from '../dom';
+import { setAttr, replaceNode, removeNode } from '../dom';
 import { handleDirective } from '../directive';
 
 export const PATCH = {

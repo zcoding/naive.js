@@ -72,7 +72,9 @@ function query(selector, context) {
  */
 
 
-
+function removeNode(node) {
+  node.parentNode.removeChild(node);
+}
 
 
 
@@ -182,7 +184,7 @@ function VNode(tagName, props, children, key) {
   children = children || [];
   for (var i = 0; i < children.length; ++i) {
     var child = children[i];
-    if (isVNode(child) || isVText(child)) {
+    if (isVNode(child) || isVText(child) || child._isComponent) {
       childNodes.push(child);
     } else if (typeof child === 'string') {
       childNodes.push(new VText(child));
@@ -473,7 +475,6 @@ function listDiff(pList, nList) {
   };
 }
 
-// diff two vdom node
 function diff(oldTree, newTree) {
   var index = 0;
   var patches = {};
@@ -574,9 +575,14 @@ function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) 
 }
 
 function h(tagName, props, children, key) {
+  var context = this || {};
+  var components = context['components'] || {};
   if (isVNode(tagName) || isVText(tagName)) {
     return tagName;
   } else if (isPlainObject(tagName)) {
+    if (components.hasOwnProperty(tagName.tagName)) {
+      console.log(tagName.tagName);
+    }
     return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
   } else if (isArray(tagName)) {
     var list = [];
@@ -587,7 +593,11 @@ function h(tagName, props, children, key) {
   } else if (arguments.length < 2) {
     return new VText(tagName);
   } else {
-    return new VNode(tagName, props, children, key);
+    if (components.hasOwnProperty(tagName)) {
+      return components[tagName]();
+    } else {
+      return new VNode(tagName, props, children, key);
+    }
   }
 }
 
@@ -649,30 +659,62 @@ var templateHelpers = {
   }
 };
 
+function emptyRender() {
+  return null;
+}
+
 function Naive(options) {
   options = options || {};
+  this.name = options.name || '';
   this._hooks = {};
-  if (!isFunction(options.state)) {
-    // 必须是 function
-    throw new NaiveException('state 必须是 [Function]');
-  }
-  var _state = options.state();
-  if (isPlainObject(_state)) {
-    this.state = _state;
+  this._isComponent = true;
+  if ('state' in options) {
+    if (!isFunction(options.state)) {
+      // 必须是 function
+      throw new NaiveException('state 必须是 [Function]');
+    }
+    var _state = options.state();
+    if (isPlainObject(_state)) {
+      this.state = _state;
+    } else {
+      warn('state 必须返回 [Plain Object]');
+      this.state = {};
+    }
   } else {
-    warn('state 必须返回 [Plain Object]');
     this.state = {};
   }
-  this.render = function render() {
-    return options.render.call(this, h, templateHelpers);
+  var context = this;
+  var vdomRender = options.render || emptyRender;
+  this.vdomRender = function render() {
+    return vdomRender.call(this, function createVdom() {
+      return h.apply(context, Array.prototype.slice.call(arguments, 0));
+    }, templateHelpers);
   };
   this.ele = null;
+  // components
+  this.components = {};
+  var componentsOptions = options.components || {};
+  for (var p in componentsOptions) {
+    if (componentsOptions.hasOwnProperty(p)) {
+      var componentDefine = componentsOptions[p] || {};
+      componentDefine.name = componentDefine.name || p;
+      context.components[p] = createComponentCreator(this, componentDefine);
+    }
+  }
   this._init(options);
 }
 
-// Naive.createVElement = h;
+function createComponentCreator(context, componentDefine) {
+  return function createComponent() {
+    return new Naive(componentDefine);
+  };
+}
 
 var prtt = Naive.prototype;
+
+prtt.render = function render() {
+  return this.vdomRender().render();
+};
 
 prtt.setState = function setState(state) {
   extend(this.state, state);
@@ -687,8 +729,8 @@ prtt.update = function update() {
     return this;
   }
   var preVdom = this.vdom;
-  this.vdom = this.render();
-  console.log(preVdom, this.vdom);
+  this.vdom = this.vdomRender();
+  // console.log(preVdom, this.vdom);
   var patches = diff(preVdom, this.vdom);
   console.log(patches);
   if (patches) {
@@ -716,11 +758,11 @@ prtt._init = function _init(options) {
       this._addHook(p, hooks[p]);
     }
   }
-  this.vdom = this.render();
+  this.vdom = this.vdomRender();
 };
 
 prtt.mount = function mount(selector) {
-  var mountPoint = getElement(selector);
+  var mountPoint = typeof selector === 'string' ? getElement(selector) : selector;
   if (!mountPoint) {
     throw new NaiveException('找不到挂载节点');
   }

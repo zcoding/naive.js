@@ -12,7 +12,7 @@ export default function VNode (tagName, props, children, key) {
   children = children || [];
   for (let i = 0; i < children.length; ++i) {
     const child = children[i];
-    if (isVNode(child) || isVText(child)) {
+    if (isVNode(child) || isVText(child) || child._isComponent) {
       childNodes.push(child);
     } else if (typeof child === 'string') {
       childNodes.push(new VText(child));

@@ -20,30 +20,66 @@ const templateHelpers = {
   }
 };
 
+function emptyRender () {
+  return null;
+}
+
 export default function Naive (options) {
   options = options || {};
+  this.name = options.name || '';
   this._hooks = {};
-  if (!isFunction(options.state)) {
-    // 必须是 function
-    throw new NaiveException('state 必须是 [Function]');
-  }
-  const _state = options.state();
-  if (isPlainObject(_state)) {
-    this.state = _state;
+  this._isComponent = true;
+  if ('state' in options) {
+    if (!isFunction(options.state)) {
+      // 必须是 function
+      throw new NaiveException('state 必须是 [Function]');
+    }
+    const _state = options.state();
+    if (isPlainObject(_state)) {
+      this.state = _state;
+    } else {
+      warn('state 必须返回 [Plain Object]');
+      this.state = {};
+    }
   } else {
-    warn('state 必须返回 [Plain Object]');
     this.state = {};
   }
-  this.render = function render () {
-    return options.render.call(this, h, templateHelpers);
+  const context = this;
+  const vdomRender = options.render || emptyRender;
+  this.vdomRender = function render () {
+    return vdomRender.call(
+      this,
+      function createVdom () {
+        return h.apply(context, Array.prototype.slice.call(arguments, 0));
+      },
+      templateHelpers
+    );
   };
   this.ele = null;
+  // components
+  this.components = {};
+  const componentsOptions = options.components || {};
+  for (let p in componentsOptions) {
+    if (componentsOptions.hasOwnProperty(p)) {
+      const componentDefine = componentsOptions[p] || {};
+      componentDefine.name = componentDefine.name || p;
+      context.components[p] = createComponentCreator(this, componentDefine);
+    }
+  }
   this._init(options);
 }
 
-// Naive.createVElement = h;
+function createComponentCreator (context, componentDefine) {
+  return function createComponent() {
+    return new Naive(componentDefine);
+  };
+}
 
 const prtt = Naive.prototype;
+
+prtt.render = function render () {
+  return this.vdomRender().render();
+};
 
 prtt.setState = function setState (state) {
   extend(this.state, state);
@@ -57,8 +93,8 @@ prtt.update = function update () {
     return this;
   }
   const preVdom = this.vdom;
-  this.vdom = this.render();
-  console.log(preVdom, this.vdom);
+  this.vdom = this.vdomRender();
+  // console.log(preVdom, this.vdom);
   const patches = diff(preVdom, this.vdom);
   console.log(patches);
   if (patches) {
@@ -86,11 +122,11 @@ prtt._init = function _init (options) {
       this._addHook(p, hooks[p]);
     }
   }
-  this.vdom = this.render();
+  this.vdom = this.vdomRender();
 };
 
 prtt.mount = function mount (selector) {
-  const mountPoint = getElement(selector);
+  const mountPoint = typeof selector === 'string' ? getElement(selector) : selector;
   if (!mountPoint) {
     throw new NaiveException('找不到挂载节点');
   }
