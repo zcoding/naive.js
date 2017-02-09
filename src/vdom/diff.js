@@ -38,6 +38,7 @@ function diffWalk (pNode, nNode, index, patches) {
     if (pNode.data !== nNode.data) { // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({type: PATCH.TEXT, data: nNode.data});
     }
+  } else if (pNode._isComponent && nNode._isComponent) { // 都是组件
   } else { // 类型不一样，绝对要替换
     currentPatches.push({type: PATCH.REPLACE, node: nNode});
   }
@@ -87,7 +88,7 @@ function diffProps (oldTree, newTree) {
 
 function diffChildren (pChildNodes, nChildNodes, index, patches, currentPatches) {
   const diffs = listDiff(pChildNodes, nChildNodes, index, patches);
-  const newChildren = diffs.children;
+  const reorderChildNodes = diffs.rList;
 
   if (diffs.moves.length) { // 需要 reorder
     // reorder 的操作在父节点执行，所以应该加到父节点的 patch
@@ -102,7 +103,7 @@ function diffChildren (pChildNodes, nChildNodes, index, patches, currentPatches)
     currentNodeIndex = (leftNode && leftNode.count)
       ? currentNodeIndex + leftNode.count + 1
       : currentNodeIndex + 1
-    diffWalk(pChildNodes[i], newChildren[i], currentNodeIndex, patches);
+    diffWalk(pChildNodes[i], reorderChildNodes[i], currentNodeIndex, patches);
     leftNode = pChildNodes[i];
   }
 }

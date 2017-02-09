@@ -30,7 +30,7 @@ export default function Naive (options) {
     this.state = {};
   }
   const context = this;
-  const vdomRender = options.render || emptyRender;
+  const _vdomRender = options.render || emptyRender;
   const _templateHelpers = {
     "if": function (condition, options) {
       return condition ? h(options) : condition;
@@ -45,8 +45,8 @@ export default function Naive (options) {
       return nodes;
     }
   };
-  this.vdomRender = function render () {
-    return vdomRender.call(
+  this.vdomRender = function vdomRender () {
+    return _vdomRender.call(
       this,
       function createVdom () {
         return h.apply(context, Array.prototype.slice.call(arguments, 0));
@@ -77,7 +77,21 @@ function createComponentCreator (context, componentDefine) {
 const prtt = Naive.prototype;
 
 prtt.render = function render () {
-  return this.vdomRender().render();
+  const vdom = this.vdom;
+  if (vdom.length) { // fragment
+    const docFragment = createDocumentFragment();
+    const simFragment = { childNodes: [] };
+    for (let i = 0; i < vdom.length; ++i) {
+      const node = vdom[i].render(this);
+      simFragment.childNodes.push(node);
+      appendChild(node, docFragment);
+    }
+    this.ele = simFragment;
+    return docFragment;
+  } else {
+    this.ele = vdom.render(this);
+    return this.ele;
+  }
 };
 
 prtt.setState = function setState (state) {
@@ -129,21 +143,7 @@ prtt.mount = function mount (selector) {
   if (!mountPoint) {
     throw new NaiveException('找不到挂载节点');
   }
-  const vdom = this.vdom;
-  if (vdom.length) { // fragment
-    const docFragment = createDocumentFragment();
-    const simFragment = { childNodes: [] };
-    for (let i = 0; i < vdom.length; ++i) {
-      const node = vdom[i].render(this);
-      simFragment.childNodes.push(node);
-      appendChild(node, docFragment);
-    }
-    this.ele = simFragment;
-    replaceNode(docFragment, mountPoint);
-  } else {
-    this.ele = vdom.render(this);
-    replaceNode(this.ele, mountPoint);
-  }
+  replaceNode(this.render(), mountPoint);
   this.mounted = true;
   this._callHooks('mounted');
 };
