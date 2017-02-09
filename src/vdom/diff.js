@@ -29,7 +29,7 @@ function diffWalk (pNode, nNode, index, patches) {
     } else {
       let propsPatches = diffProps(pNode, nNode);
       if (propsPatches) {
-        currentPatches.push({type: PATCH.PROPS, props: propsPatches});
+        currentPatches.push({type: PATCH.PROPS, props: propsPatches.set, removeProps: propsPatches.remove});
       }
       // 继续 diff 子节点
       diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
@@ -54,26 +54,35 @@ function objectEquals (a, b) {
 function diffProps (oldTree, newTree) {
   let oldTreeProps = oldTree.props;
   let newTreeProps = newTree.props;
-  let propsPatches = {}, count = 0;
+  let setPropsPatches = {}, removePropsPatches = {}, hasPatch = false;
   for (let p in oldTreeProps) {
-    // 如果是指令属性，而且 value 是对象，则比较对象
-    if (!newTreeProps.hasOwnProperty(p)) {
-      propsPatches[p] = newTreeProps[p];
-      count += 1;
+    if (!newTreeProps.hasOwnProperty(p) || typeof newTreeProps[p] === 'undefined') { // 属性被移除
+      hasPatch = true;
+      removePropsPatches[p] = oldTreeProps[p];
     } else if (isPlainObject(newTreeProps[p])) {
       if (!objectEquals(newTreeProps[p], oldTreeProps[p])) {
-        propsPatches[p] = newTreeProps[p];
-        count += 1;
+        hasPatch = true;
+        setPropsPatches[p] = newTreeProps[p];
       }
     } else if (newTreeProps[p] !== oldTreeProps[p]) {
-      propsPatches[p] = newTreeProps[p];
-      count += 1;
+      hasPatch = true;
+      setPropsPatches[p] = newTreeProps[p];
     }
   }
-  if (count <= 0) {
+  // 检查新属性
+  for (let p in newTree) {
+    if (newTree.hasOwnProperty(p) && !oldTree.hasOwnProperty(p)) {
+      hasPatch = true;
+      setPropsPatches[p] = newTreeProps[p];
+    }
+  }
+  if (!hasPatch) {
     return null;
   }
-  return propsPatches;
+  return {
+    set: setPropsPatches,
+    remove: removePropsPatches
+  };
 }
 
 function diffChildren (pChildNodes, nChildNodes, index, patches, currentPatches) {

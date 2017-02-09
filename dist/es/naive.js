@@ -93,7 +93,9 @@ function setAttr(node, attr, value) {
 
 
 
-
+function removeAttr(node, name) {
+  node.removeAttribute(name);
+}
 
 
 
@@ -146,6 +148,26 @@ var addClass = supportClassList ? function (element, classes) {
   return element;
 };
 
+var removeClass = supportClassList ? function (element, classes) {
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  element.classList.remove.apply(element.classList, classes);
+  return element;
+} : function (element, classes) {
+  var tmp = element.className;
+  classes = classes.split(/\s+/).filter(function (s) {
+    return s;
+  });
+  classes.forEach(function (c) {
+    if (hasClass(element, c)) {
+      tmp = tmp.replace(new RegExp(c, 'g'), '');
+    }
+  });
+  element.className = tmp;
+  return element;
+};
+
 function VText(text) {
   this.data = text;
 }
@@ -154,22 +176,80 @@ VText.prototype.render = function vdom2dom() {
   return createTextNode(this.data);
 };
 
-function handleDirective(directive, value, element, context) {
-  switch (directive) {
-    case 'show':
-      element.style.display = value ? '' : 'none';
-      break;
-    case 'class':
-      for (var c in value) {
-        if (value[c]) {
+function klass(setValue, element, context) {
+  if (typeof setValue === 'string') {
+    setAttr(element, 'class', setValue);
+  } else if (isArray(setValue)) {
+    setAttr(element, 'class', setValue.join(' '));
+  } else {
+    for (var c in setValue) {
+      if (setValue.hasOwnProperty(c)) {
+        if (setValue[c]) {
           addClass(element, c);
         } else {
           removeClass(element, c);
         }
       }
+    }
+  }
+}
+
+function show(value, element, context) {
+  element.style.display = value ? '' : 'none';
+}
+
+function style(value, element, context) {
+  for (var s in value) {
+    element.style[s] = value[s];
+  }
+}
+
+function handleDirective(directive, value, element, context) {
+  switch (directive) {
+    case 'show':
+      show(value, element, context);
+      break;
+    case 'class':
+      klass(value, element, context);
+      break;
+    case 'style':
+      style(value, element, context);
       break;
     default:
+      setAttr(element, directive, value);
       break;
+  }
+}
+
+function removeClassAttr(removeValue, element, context) {
+  if (typeof removeValue === 'string') {
+    removeClass(element, removeValue);
+  } else if (isArray(removeValue)) {
+    removeClass(element, removeValue.join(' '));
+  } else {
+    for (var c in removeValue) {
+      if (removeValue.hasOwnProperty(c)) {
+        removeClass(element, c);
+      }
+    }
+  }
+}
+
+function handleDirectiveRemove(directive, value, element, context) {
+  switch (directive) {
+    case 'class':
+      removeClassAttr(value, element, context);
+      break;
+  }
+}
+
+function attachEvent(el, eventName, handler) {
+  if (el.addEventListener) {
+    el.addEventListener(eventName, handler, false);
+  } else if (el.attachEvent) {
+    el.attachEvent(eventName, handler);
+  } else {
+    el['on' + eventName] = handler;
   }
 }
 
@@ -183,7 +263,7 @@ function VNode(tagName, props, children, key) {
     var child = children[i];
     if (isVNode(child) || isVText(child) || child._isComponent) {
       childNodes.push(child);
-    } else if (typeof child === 'string') {
+    } else if (typeof child === 'string' || typeof child === 'number') {
       childNodes.push(new VText(child));
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
@@ -206,27 +286,17 @@ function checkAttrDirective(attr) {
 }
 
 // add event listener
-function isEventDirective(attr) {
-  return (/^@/.test(attr)
-  );
-}
-
-function attachEvent(el, eventName, handler) {
-  if (el.addEventListener) {
-    el.addEventListener(eventName, handler, false);
-  } else if (el.attachEvent) {
-    el.attachEvent(eventName, handler);
-  } else {
-    el['on' + eventName] = handler;
-  }
-}
-
 VNode.prototype.render = function vdom2dom(context) {
   var el = createElement(this.tagName);
   var props = this.props;
   for (var p in props) {
     if (checkAttrDirective(p)) {
-      if (isEventDirective(p)) {
+      // 处理指令
+      if (/^n-/.test(p)) {
+        handleDirective(p.slice(2), props[p], el, context);
+      } else if (/^:/.test(p)) {
+        handleDirective(p.slice(1), props[p], el, context);
+      } else {
         (function () {
           var eventName = p.slice(1);
           var handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
@@ -234,13 +304,6 @@ VNode.prototype.render = function vdom2dom(context) {
             handlerFunc.call(context, evt);
           });
         })();
-      } else {
-        // 处理指令
-        if (/^n-/.test(p)) {
-          handleDirective(p.slice(2), props[p], el, context);
-        } else if (/^:/.test(p)) {
-          handleDirective(p.slice(1), props[p], el, context);
-        } else {}
       }
     } else {
       setAttr(el, p, props[p]);
@@ -312,31 +375,39 @@ function isAttrDirective(attr) {
   );
 }
 // 检查是否事件指令
-function isEventDirective$1(attr) {
-  return (/^@/.test(attr)
-  );
-}
-
 function patchProps(domNode, patch, context) {
   for (var p in patch.props) {
     if (patch.props.hasOwnProperty(p)) {
       // 检查是否指令属性
       if (isAttrDirective(p)) {
-        if (isEventDirective$1(p)) {
-          // removeEventListener
-          // addEventListener
+        // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), patch.props[p], domNode, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), patch.props[p], domNode, context);
         } else {
-          // 其他指令属性
-          // 处理指令
-          if (/^n-/.test(p)) {
-            handleDirective(p.slice(2), patch.props[p], domNode, context);
-          } else if (/^:/.test(p)) {
-            handleDirective(p.slice(1), patch.props[p], domNode, context);
-          } else {}
+          // 事件指令
+          // remove old event listener
+          // detachEvent(domNode, p.slice(1), patch.props[p]);
+          // add new event listener
         }
       } else {
         // 普通属性
-        setAttr(domNode, p, patch.props[p]);
+        if (typeof patch.props[p] === 'undefined') {
+          removeAttr(domNode, p);
+        } else {
+          setAttr(domNode, p, patch.props[p]);
+        }
+      }
+    }
+  }
+  // @TODO remove 错误
+  for (var _p in patch.removeProps) {
+    if (patch.removeProps.hasOwnProperty(_p)) {
+      if (isAttrDirective(_p)) {
+        if (/^n-/.test(_p)) {} else if (/^:/.test(_p)) {
+          handleDirectiveRemove(_p.slice(1), patch.removeProps[_p], domNode, context);
+        } else {}
       }
     }
   }
@@ -499,7 +570,7 @@ function diffWalk(pNode, nNode, index, patches) {
     } else {
       var propsPatches = diffProps(pNode, nNode);
       if (propsPatches) {
-        currentPatches.push({ type: PATCH.PROPS, props: propsPatches });
+        currentPatches.push({ type: PATCH.PROPS, props: propsPatches.set, removeProps: propsPatches.remove });
       }
       // 继续 diff 子节点
       diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
@@ -527,27 +598,38 @@ function objectEquals(a, b) {
 function diffProps(oldTree, newTree) {
   var oldTreeProps = oldTree.props;
   var newTreeProps = newTree.props;
-  var propsPatches = {},
-      count = 0;
+  var setPropsPatches = {},
+      removePropsPatches = {},
+      hasPatch = false;
   for (var p in oldTreeProps) {
-    // 如果是指令属性，而且 value 是对象，则比较对象
-    if (!newTreeProps.hasOwnProperty(p)) {
-      propsPatches[p] = newTreeProps[p];
-      count += 1;
+    if (!newTreeProps.hasOwnProperty(p) || typeof newTreeProps[p] === 'undefined') {
+      // 属性被移除
+      hasPatch = true;
+      removePropsPatches[p] = oldTreeProps[p];
     } else if (isPlainObject(newTreeProps[p])) {
       if (!objectEquals(newTreeProps[p], oldTreeProps[p])) {
-        propsPatches[p] = newTreeProps[p];
-        count += 1;
+        hasPatch = true;
+        setPropsPatches[p] = newTreeProps[p];
       }
     } else if (newTreeProps[p] !== oldTreeProps[p]) {
-      propsPatches[p] = newTreeProps[p];
-      count += 1;
+      hasPatch = true;
+      setPropsPatches[p] = newTreeProps[p];
     }
   }
-  if (count <= 0) {
+  // 检查新属性
+  for (var _p in newTree) {
+    if (newTree.hasOwnProperty(_p) && !oldTree.hasOwnProperty(_p)) {
+      hasPatch = true;
+      setPropsPatches[_p] = newTreeProps[_p];
+    }
+  }
+  if (!hasPatch) {
     return null;
   }
-  return propsPatches;
+  return {
+    set: setPropsPatches,
+    remove: removePropsPatches
+  };
 }
 
 function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) {
@@ -641,21 +723,6 @@ function NaiveException(message) {
   this.message = message;
 }
 
-var templateHelpers = {
-  "if": function _if(condition, options) {
-    return condition ? h(options) : condition;
-  },
-  "each": function each(list, createItem) {
-    var nodes = [];
-    for (var i = 0; i < list.length; ++i) {
-      var item = list[i];
-      var key = 'id' in item ? item['id'] : i;
-      nodes.push(h(createItem(item, key)));
-    }
-    return nodes;
-  }
-};
-
 function emptyRender() {
   return null;
 }
@@ -682,10 +749,24 @@ function Naive(options) {
   }
   var context = this;
   var vdomRender = options.render || emptyRender;
+  var _templateHelpers = {
+    "if": function _if(condition, options) {
+      return condition ? h(options) : condition;
+    },
+    "each": function each(list, createItem) {
+      var nodes = [];
+      for (var i = 0; i < list.length; ++i) {
+        var item = list[i];
+        var key = isPlainObject(item) && 'id' in item ? item['id'] : i;
+        nodes.push(h(createItem.call(context, item, i, key)));
+      }
+      return nodes;
+    }
+  };
   this.vdomRender = function render() {
     return vdomRender.call(this, function createVdom() {
       return h.apply(context, Array.prototype.slice.call(arguments, 0));
-    }, templateHelpers);
+    }, _templateHelpers);
   };
   this.ele = null;
   // components
@@ -715,7 +796,7 @@ prtt.render = function render() {
 
 prtt.setState = function setState(state) {
   extend(this.state, state);
-  this.update();
+  this.update(); // @TODO nextTick 的时候再 update
   return this;
 };
 
@@ -729,7 +810,7 @@ prtt.update = function update() {
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
   var patches = diff(preVdom, this.vdom);
-  console.log(patches);
+  // console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {

@@ -3,6 +3,7 @@ import VText from './vtext';
 import { isVNode, isVText } from './utils';
 import { isArray, isFunction } from '../utils';
 import { handleDirective } from '../directive';
+import { attachEvent } from '../event';
 
 export default function VNode (tagName, props, children, key) {
   this.tagName = tagName;
@@ -14,7 +15,7 @@ export default function VNode (tagName, props, children, key) {
     const child = children[i];
     if (isVNode(child) || isVText(child) || child._isComponent) {
       childNodes.push(child);
-    } else if (typeof child === 'string') {
+    } else if (typeof child === 'string' || typeof child === 'number') {
       childNodes.push(new VText(child));
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
@@ -40,36 +41,22 @@ function isEventDirective (attr) {
   return /^@/.test(attr);
 }
 
-function attachEvent (el, eventName, handler) {
-  if (el.addEventListener) {
-    el.addEventListener(eventName, handler, false);
-  } else if (el.attachEvent) {
-    el.attachEvent(eventName, handler);
-  } else {
-    el[`on${eventName}`] = handler;
-  }
-}
-
-function detachEvent () {}
-
 VNode.prototype.render = function vdom2dom(context) {
   const el = createElement(this.tagName);
   const props = this.props;
   for (let p in props) {
     if (checkAttrDirective(p)) {
-      if (isEventDirective(p)) {
+      // 处理指令
+      if (/^n-/.test(p)) {
+        handleDirective(p.slice(2), props[p], el, context);
+      } else if (/^:/.test(p)) {
+        handleDirective(p.slice(1), props[p], el, context);
+      } else {
         const eventName = p.slice(1);
         const handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
         attachEvent(el, eventName, function handler(evt) {
           handlerFunc.call(context, evt);
         });
-      } else {
-        // 处理指令
-        if (/^n-/.test(p)) {
-          handleDirective(p.slice(2), props[p], el, context);
-        } else if (/^:/.test(p)) {
-          handleDirective(p.slice(1), props[p], el, context);
-        } else {}
       }
     } else {
       setAttr(el, p, props[p]);

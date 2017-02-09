@@ -1,5 +1,6 @@
-import { setAttr, replaceNode, removeNode } from '../dom';
-import { handleDirective } from '../directive';
+import { setAttr, replaceNode, removeNode, removeAttr } from '../dom';
+import { handleDirective, handleDirectiveRemove } from '../directive';
+import { attachEvent, detachEvent } from '../event';
 
 export const PATCH = {
   REPLACE: 0, // 替换节点
@@ -60,19 +61,35 @@ function patchProps (domNode, patch, context) {
     if (patch.props.hasOwnProperty(p)) {
       // 检查是否指令属性
       if (isAttrDirective(p)) {
-        if (isEventDirective(p)) {
-          // removeEventListener
-          // addEventListener
-        } else { // 其他指令属性
-          // 处理指令
-          if (/^n-/.test(p)) {
-            handleDirective(p.slice(2), patch.props[p], domNode, context);
-          } else if (/^:/.test(p)) {
-            handleDirective(p.slice(1), patch.props[p], domNode, context);
-          } else {}
+        // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), patch.props[p], domNode, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), patch.props[p], domNode, context);
+        } else {
+          // 事件指令
+          // remove old event listener
+          // detachEvent(domNode, p.slice(1), patch.props[p]);
+          // add new event listener
         }
       } else { // 普通属性
-        setAttr(domNode, p, patch.props[p]);
+        if (typeof patch.props[p] === 'undefined') {
+          removeAttr(domNode, p);
+        } else {
+          setAttr(domNode, p, patch.props[p]);
+        }
+      }
+    }
+  }
+  // @TODO remove 错误
+  for (let p in patch.removeProps) {
+    if (patch.removeProps.hasOwnProperty(p)) {
+      if (isAttrDirective(p)) {
+        if (/^n-/.test(p)) {
+        } else if (/^:/.test(p)) {
+          handleDirectiveRemove(p.slice(1), patch.removeProps[p], domNode, context);
+        } else {
+        }
       }
     }
   }

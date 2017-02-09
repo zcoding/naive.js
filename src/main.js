@@ -5,21 +5,6 @@ import { warn, extend, isFunction, isPlainObject } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
 
-const templateHelpers = {
-  "if": function (condition, options) {
-    return condition ? h(options) : condition;
-  },
-  "each": function (list, createItem) {
-    const nodes = [];
-    for (let i = 0; i < list.length; ++i) {
-      const item = list[i];
-      const key = 'id' in item ? item['id'] : i;
-      nodes.push(h(createItem(item, key)));
-    }
-    return nodes;
-  }
-};
-
 function emptyRender () {
   return null;
 }
@@ -46,13 +31,27 @@ export default function Naive (options) {
   }
   const context = this;
   const vdomRender = options.render || emptyRender;
+  const _templateHelpers = {
+    "if": function (condition, options) {
+      return condition ? h(options) : condition;
+    },
+    "each": function (list, createItem) {
+      const nodes = [];
+      for (let i = 0; i < list.length; ++i) {
+        const item = list[i];
+        const key = isPlainObject(item) && 'id' in item ? item['id'] : i;
+        nodes.push(h(createItem.call(context, item, i, key)));
+      }
+      return nodes;
+    }
+  };
   this.vdomRender = function render () {
     return vdomRender.call(
       this,
       function createVdom () {
         return h.apply(context, Array.prototype.slice.call(arguments, 0));
       },
-      templateHelpers
+      _templateHelpers
     );
   };
   this.ele = null;
@@ -83,7 +82,7 @@ prtt.render = function render () {
 
 prtt.setState = function setState (state) {
   extend(this.state, state);
-  this.update();
+  this.update(); // @TODO nextTick 的时候再 update
   return this;
 };
 
@@ -96,7 +95,7 @@ prtt.update = function update () {
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
   const patches = diff(preVdom, this.vdom);
-  console.log(patches);
+  // console.log(patches);
   if (patches) {
     patch(this, this.ele, patches);
   } else {

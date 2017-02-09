@@ -1,20 +1,45 @@
-import { removeNode, addClass } from './dom';
+import { setAttr, removeClass } from './dom';
+import { isArray } from './utils';
+
+import klass from './directives/class';
+import show from './directives/show';
+import style from './directives/style';
 
 export function handleDirective (directive, value, element, context) {
   switch (directive) {
     case 'show':
-      element.style.display = value ? '' : 'none';
+      show(value, element, context);
       break;
     case 'class':
-      for (let c in value) {
-        if (value[c]) {
-          addClass(element, c);
-        } else {
-          removeClass(element, c);
-        }
-      }
+      klass(value, element, context);
+      break;
+    case 'style':
+      style(value, element, context);
       break;
     default:
+      setAttr(element, directive, value);
+      break;
+  }
+}
+
+function removeClassAttr (removeValue, element, context) {
+  if (typeof removeValue === 'string') {
+    removeClass(element, removeValue);
+  } else if (isArray(removeValue)) {
+    removeClass(element, removeValue.join(' '));
+  } else {
+    for (let c in removeValue) {
+      if (removeValue.hasOwnProperty(c)) {
+        removeClass(element, c);
+      }
+    }
+  }
+}
+
+export function handleDirectiveRemove (directive, value, element, context) {
+  switch (directive) {
+    case 'class':
+      removeClassAttr(value, element, context);
       break;
   }
 }
