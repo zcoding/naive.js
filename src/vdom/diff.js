@@ -1,55 +1,7 @@
 import { isVNode, isVText } from './utils';
-import listDiff from './list-diff';
-import listDiff2 from './list-diff2';
-import { PATCH } from './patch';
 import { isArray, isPlainObject } from '../utils';
-
-// diff two vdom node
-export function diff (oldTree, newTree) {
-  let index = 0;
-  let patches = {};
-  if (isArray(oldTree)) {
-    const currentPatches = [];
-    diffChildren(oldTree, newTree, 0, patches, currentPatches);
-    if (currentPatches.length) {
-      patches[0] = currentPatches;
-    }
-  } else {
-    diffWalk(oldTree, newTree, index, patches);
-  }
-  return patches;
-}
-
-function diffWalk (pNode, nNode, index, patches) {
-  let currentPatches = []; // 当前层级的 patch
-  if (nNode === null) {
-    // 这种情况属于：在 diffChildren 的时候该节点被标识为被删除的节点，但是不需要在这里删除（在 reorder 的时候会处理删除）
-  } else if (isVNode(pNode) && isVNode(nNode)) { // 都是 VNode
-    if (pNode.tagName !== nNode.tagName || pNode.key !== nNode.key) { // 不同节点，或者已标识不是同一节点，要替换
-      currentPatches.push({type: PATCH.REPLACE, node: nNode});
-    } else {
-      let propsPatches = diffProps(pNode, nNode);
-      if (propsPatches) {
-        currentPatches.push({type: PATCH.PROPS, props: propsPatches.set, removeProps: propsPatches.remove});
-      }
-      // 继续 diff 子节点
-      diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
-      // const _r = listDiff2(pNode.children, nNode.children);
-      // console.log(_r);
-    }
-  } else if (isVText(pNode) && isVText(nNode)) { // 都是 VText
-    if (pNode.data !== nNode.data) { // 内容不一样的时候才替换（只替换内容即可）
-      currentPatches.push({type: PATCH.TEXT, data: nNode.data});
-    }
-  } else if (pNode._isComponent || nNode._isComponent) { // 组件
-    // console.log('component');
-  } else { // 类型不一样，绝对要替换
-    currentPatches.push({type: PATCH.REPLACE, node: nNode});
-  }
-  if (currentPatches.length) {
-    patches[index] = currentPatches;
-  }
-}
+import listDiff from './list-diff';
+import { PATCH } from './patch';
 
 // 快速比较两个对象是否“相等”
 function objectEquals (a, b) {
@@ -90,52 +42,96 @@ function diffProps (oldTree, newTree) {
   };
 }
 
-function diffChildren (pChildNodes, nChildNodes, index, patches, currentPatches) {
-  const diffs = listDiff(pChildNodes, nChildNodes, index, patches);
-  const reorderChildNodes = diffs.rList;
+// 按照先删除后插入的顺序
+function diffChildren (pChildren, nChildren, parentIndex, patches, parentPatches) {
+  const diffs = listDiff(pChildren, nChildren);
+  const orderedList = diffs.list;
 
-  if (diffs.moves.length) { // 需要 reorder
-    // reorder 的操作在父节点执行，所以应该加到父节点的 patch
-    const reorderPatch = { type: PATCH.REORDER, moves: diffs.moves };
-    currentPatches.push(reorderPatch);
+  const pLen = pChildren.length;
+  const oLen = orderedList.length;
+  const len = pLen > oLen ? pLen : oLen; // const len = max(pLen, oLen);
+
+  let currentIndex = parentIndex;
+  for (let i = 0; i < len; ++i) {
+    const pNode = pChildren[i];
+    const nNode = orderedList[i];
+    currentIndex = currentIndex + 1;
+    if (!pNode) {
+      if (nNode) { // 旧的没有新的有，插入（末尾）
+        parentPatches.push({
+          type: PATCH.INSERT,
+          node: nNode
+        });
+      }
+    } else {
+      diffWalk(pNode, nNode, currentIndex, patches);
+    }
+    if (pNode && pNode.count) {
+      currentIndex += pNode.count;
+    }
   }
-  
-  // 除了重排的 patch 还有各个子节点自身的 patch
-  let leftNode = null;
-  let currentNodeIndex = index;
-  for (let i = 0; i < pChildNodes.length; ++i) {
-    currentNodeIndex = (leftNode && leftNode.count)
-      ? currentNodeIndex + leftNode.count + 1
-      : currentNodeIndex + 1
-    diffWalk(pChildNodes[i], reorderChildNodes[i], currentNodeIndex, patches);
-    leftNode = pChildNodes[i];
+  if (diffs.moves) {
+    parentPatches.push({
+      type: PATCH.REORDER,
+      moves: diffs.moves
+    });
   }
 }
 
-// 按照先删除后插入的顺序
-function diffChildren2 (pChildNodes, nChildNodes, index, patches, currentPatches) {
-  const orderedSet = listDiff2(pChildNodes, nChildNodes);
-  const rList = orderedSet.rList;
-
-  const aLen = pChildNodes.length;
-  const bLen = rList.length;
-  const len = aLen > bLen ? aLen : bLen; // const len = max(aLen, bLen);
-
-  let currentNodeIndex = index;
-  for (let i = 0; i < len; ++i) {
-    const pNode = pChildNodes[i];
-    const rNode = rList[i];
-    currentNodeIndex = (pNode && pNode.count) ? currentNodeIndex + pNode.count + 1 : currentNodeIndex + 1;
-
-    if (!pNode) {
-      if (rNode) { // 旧的没有新的有，插入
-        currentPatches.push({type: PATCH.INSERT, index: null, item: rNode});
+function diffWalk (pVdom, nVdom, currentIndex, patches) {
+  let currentPatches = []; // 当前层级的 patch
+  if (nVdom === null) { // * VS null
+    currentPatches.push({
+      type: PATCH.REMOVE,
+      from: currentIndex,
+      key: null
+    });
+  } else if (isVNode(pVdom) && isVNode(nVdom)) { // VNode VS VNode
+    if (pVdom.tagName !== nVdom.tagName || pVdom.key !== nVdom.key) { // 不同 tagName/key 节点: 替换
+      currentPatches.push({
+        type: PATCH.REPLACE,
+        node: nVdom
+      });
+    } else { // 同 key 同 tagName 节点: 比较属性和子节点
+      const propsPatches = diffProps(pVdom, nVdom);
+      if (propsPatches) {
+        currentPatches.push({
+          type: PATCH.PROPS,
+          props: propsPatches
+        });
       }
-    } else {
-      diffWalk(pNode, rNode, currentNodeIndex, patches);
+      // 继续 diff 子节点
+      diffChildren(pVdom.children, nVdom.children, currentIndex, patches, currentPatches);
     }
+  } else if (isVText(pVdom) && isVText(nVdom)) { // VText VS VText
+    if (pVdom.data !== nVdom.data) { // 内容不一样的时候才替换（只替换内容即可）
+      currentPatches.push({type: PATCH.TEXT, data: nVdom.data});
+    }
+  } else if (pVdom._isComponent || nVdom._isComponent) { // * VS Component | Component VS *
+  } else { // 不同类型的节点
+    currentPatches.push({
+      type: PATCH.REPLACE,
+      node: nVdom
+    });
   }
-  if (orderedSet.moves) {
-    currentPatches.push({type: PATCH.REORDER, moves: orderedSet.moves});
+  if (currentPatches.length > 0) {
+    patches[currentIndex] = currentPatches;
   }
+}
+
+export function diff (pVdom, nVdom) {
+  let patch = {};
+  patch.pVdom = pVdom;
+  const patches = {};
+  if (isArray(pVdom)) {
+    const currentPatches = [];
+    diffChildren(pVdom, nVdom, 0, patches, currentPatches);
+    if (currentPatches.length > 0) {
+      patches[0] = currentPatches;
+    }
+  } else {
+    diffWalk(pVdom, nVdom, 0, patches);
+  }
+  patch.patches = patches;
+  return patch;
 }

@@ -46,13 +46,26 @@ export default function Naive (options) {
     }
   };
   this.vdomRender = function vdomRender () {
-    return _vdomRender.call(
+    const vdom = _vdomRender.call(
       this,
       function createVdom () {
         return h.apply(context, Array.prototype.slice.call(arguments, 0));
       },
       _templateHelpers
     );
+    let count = 0;
+    if (vdom.length) {
+      for (let i = 0; i < vdom.length; ++i) {
+        count += 1;
+        if (vdom[i].count) {
+          count += vdom[i].count;
+        }
+      }
+    } else {
+      count = vdom.count || 1;
+    }
+    this.count = count;
+    return vdom;
   };
   this.ele = null;
   // components
@@ -80,7 +93,7 @@ prtt.render = function render () {
   const vdom = this.vdom;
   if (vdom.length) { // fragment
     const docFragment = createDocumentFragment();
-    const simFragment = { childNodes: [] };
+    const simFragment = { _isFragment: true, childNodes: [] };
     for (let i = 0; i < vdom.length; ++i) {
       const node = vdom[i].render(this);
       simFragment.childNodes.push(node);

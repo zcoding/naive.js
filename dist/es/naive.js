@@ -43,6 +43,13 @@ function isPlainObject(obj) {
 
  // asap async
 
+/**
+ * 获取元素
+ *
+ * IE 8 只支持到 CSS2 选择器
+ *
+ * @param {String} selector
+ */
 function getElement(selector) {
   return typeof selector === 'string' ? query(selector) : selector;
 }
@@ -171,6 +178,7 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
+// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -288,7 +296,6 @@ function checkAttrDirective(attr) {
   );
 }
 
-// add event listener
 VNode.prototype.render = function vdom2dom(context) {
   var el = createElement(this.tagName);
   var props = this.props;
@@ -326,251 +333,192 @@ function isVText(node) {
   return node instanceof VText;
 }
 
-var PATCH = {
-  REPLACE: 0, // 替换节点
-  INSERT: 1, // 插入
-  REMOVE: 2, // 移除
-  REORDER: 3, // 重排
-  PROPS: 4, // 修改属性
-  TEXT: 5 // 替换文本
-};
-
-function patch(context, domNode, patches) {
-  var walker = { index: 0 };
-  dfsWalk(context, domNode, walker, patches);
-}
-
-function dfsWalk(context, domNode, walker, patches) {
-  var currentPatches = patches[walker.index];
-
-  var len = domNode.childNodes ? domNode.childNodes.length : 0;
-  for (var i = 0; i < len; i++) {
-    var child = domNode.childNodes[i];
-    walker.index++;
-    dfsWalk(context, child, walker, patches);
-  }
-  if (currentPatches) {
-    applyPatches(context, domNode, currentPatches);
-  }
-}
-
-// @TODO 重用 dom 节点
-function patchReorder(context, domNode, moves) {
-  // console.log(moves);
-  var keyMap = {};
-  for (var i = 0; i < moves.length; ++i) {
-    var move = moves[i];
-    switch (move.type) {
-      case PATCH.INSERT:
-        // 插入新节点
-        var target = domNode.childNodes[move.index] || null; // null 插入末尾
-        var toInsert = typeof move.item.key !== 'undefined' && keyMap[move.item.key] || move.item.render(context);
-        domNode.insertBefore(toInsert, target);
-        break;
-      case PATCH.REMOVE:
-        var toRemove = domNode.childNodes[move.index];
-        if (typeof move.key !== 'undefined') {
-          keyMap[move.key] = toRemove;
-        }
-        // console.log(toRemove);
-        removeNode(toRemove);
-        break;
-      default:
-      // error type
-    }
-  }
-}
-
-// 检查是否指令属性
-function isAttrDirective(attr) {
-  return (/^@|n-|:/.test(attr)
-  );
-}
-// 检查是否事件指令
-function patchProps(domNode, patch, context) {
-  for (var p in patch.props) {
-    if (patch.props.hasOwnProperty(p)) {
-      // 检查是否指令属性
-      if (isAttrDirective(p)) {
-        // 处理指令
-        if (/^n-/.test(p)) {
-          handleDirective(p.slice(2), patch.props[p], domNode, context);
-        } else if (/^:/.test(p)) {
-          handleDirective(p.slice(1), patch.props[p], domNode, context);
-        } else {
-          // 事件指令
-          // remove old event listener
-          // detachEvent(domNode, p.slice(1), patch.props[p]);
-          // add new event listener
-        }
-      } else {
-        // 普通属性
-        if (typeof patch.props[p] === 'undefined') {
-          removeAttr(domNode, p);
-        } else {
-          setAttr(domNode, p, patch.props[p]);
-        }
-      }
-    }
-  }
-  // @TODO remove 错误
-  for (var _p in patch.removeProps) {
-    if (patch.removeProps.hasOwnProperty(_p)) {
-      if (isAttrDirective(_p)) {
-        if (/^n-/.test(_p)) {} else if (/^:/.test(_p)) {
-          handleDirectiveRemove(_p.slice(1), patch.removeProps[_p], domNode, context);
-        } else {}
-      }
-    }
-  }
-}
-
-// 根据补丁更新 DOM 节点
-function applyPatches(context, domNode, patches) {
-  for (var i = 0; i < patches.length; ++i) {
-    var _patch = patches[i];
-    switch (_patch.type) {
-      case PATCH.REPLACE:
-        // 替换元素节点
-        replaceNode(_patch.node.render(context), domNode);
-        break;
-      case PATCH.PROPS:
-        // 属性修改
-        patchProps(domNode, _patch, context);
-        break;
-      case PATCH.TEXT:
-        // 替换文本内容
-        domNode.data = _patch.data;
-        break;
-      case PATCH.REORDER:
-        // 子节点重新排序
-        patchReorder(context, domNode, _patch.moves);
-        break;
-      default:
-      // warn
-    }
-  }
-}
-
-function makeKeyIndexAndFree(list) {
-  var keyIndex = {}; // 有 key 的节点位置
+// 分别找到有 key 的元素位置和没有 key 的元素的位置
+function keyIndex(list) {
+  var keys = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
-  for (var i = 0, len = list.length; i < len; i++) {
+  for (var i = 0; i < list.length; i++) {
     var item = list[i];
     var itemKey = item.key;
-    if (itemKey) {
-      keyIndex[itemKey] = i;
+    if (typeof itemKey !== 'undefined') {
+      keys[itemKey] = i;
     } else {
-      free.push(item);
+      free.push(i);
     }
   }
   return {
-    keyIndex: keyIndex,
+    keys: keys,
     free: free
   };
 }
 
-function listDiff(pList, nList) {
-  var nMap = makeKeyIndexAndFree(nList);
-  var nKeys = nMap.keyIndex,
-      nFree = nMap.free;
-  var pMap = makeKeyIndexAndFree(pList);
-  var pKeys = pMap.keyIndex,
-      pFree = pMap.free;
-
-  // rList 数组保存的是 nList 的节点，根据 key 找到 pList 中的对应节点并按照 pList 中节点的顺序排列，这样就可以在 diffChildren 的时候按顺序一一比较
-  // 在“重排”的过程中，记录实现 nList 的节点顺序的重排操作，保存在 moves 中，这样在 patch 的时候就可以找到对应的 dom
-  var rList = [];
-
-  // 找 pList 中有 key 的节点的对应节点
-  for (var i = 0, freeIndex = 0; i < pList.length; ++i) {
-    var item = pList[i];
-    var itemKey = item.key;
-    if (itemKey) {
-      if (!nKeys.hasOwnProperty(itemKey)) {
-        // 如果 pList 有但 nList 没有，说明该节点一定会被删掉
-        rList.push(null);
-      } else {
-        // 有对应节点
-        var itemKeyIndex = nKeys[itemKey];
-        rList.push(nList[itemKeyIndex]);
-      }
-    } else {
-      // 如果该节点没有 key 就在 nList 中也找一个没有 key 的节点（空闲节点）来填这个位置（按照顺序取），如果 nList 已经没有“空闲节点”，那么这个节点一定会被删掉
-      rList.push(nFree[freeIndex++] || null);
-    }
-  }
-  var moves = [];
-  function remove(index, key) {
-    moves.push({
-      type: PATCH.REMOVE,
-      index: index,
-      key: key
-    });
-  }
-  function insert(index, item) {
-    moves.push({
-      type: PATCH.INSERT,
-      index: index,
-      item: item
-    });
-  }
-  // rList 已经处理完，开始模拟 reorder 操作，找出实际 reorder 的操作步骤
-  // simulateList 用来模拟 reorder 过程中的 pList
-  var simulateList = rList.slice(0);
-  // 找出 pList 中被移除的节点（前面已经标识为 null 的节点）
-  for (var _i = 0; _i < simulateList.length;) {
-    if (simulateList[_i] === null) {
-      remove(_i);
-      simulateList.splice(_i, 1);
-    } else {
-      ++_i;
-    }
-  }
-  // 遍历 nList 安排其他节点，包括没有被删的节点（有 key 对应的节点）、nList 中有 pList 中没有的节点
-  for (var s = 0, n = 0; n < nList.length; ++n) {
-    var nItem = nList[n];
-    var nItemKey = nItem.key;
-    var sItem = simulateList[s];
-    if (sItem) {
-      // 已经超出 simulateList 范围，剩余的节点都插入
-      var sItemKey = sItem.key;
-      if (sItemKey === nItemKey) {
-        // 位置相同，不需要 reorder 包括没有 key 的也不需要 reorder
-        ++s;
-      } else {
-        if (typeof nItemKey !== 'undefined' && !pKeys.hasOwnProperty(nItemKey)) {
-          // 旧列表中不存在，新节点直接插入
-          insert(n, nItem);
-        } else {
-          // 旧列表中存在，需要对 sItem 和 nItem 进行对调
-          var nextSItem = simulateList[s + 1];
-          if (nextSItem && nextSItem.key === nItemKey) {
-            remove(n, sItemKey);
-            simulateList.splice(s, 1);
-            ++s;
-          } else {
-            insert(n, nItem);
-            if (n === nList.length - 1) {
-              remove(n + 1, sItemKey);
-            }
-          }
-        }
-      }
-    } else {
-      // 旧列表该位置为空，直接插入
-      insert(n, nItem);
-    }
-  }
-  // console.log(moves)
+// 模拟删除
+function remove(arr, index, key) {
+  arr.splice(index, 1);
   return {
-    moves: moves,
-    rList: rList
+    from: index,
+    key: key
   };
 }
 
-// 分别找到有 key 的元素位置和没有 key 的元素的位置
+function reorder(pList, nList) {
+  // N: pList.length
+  // M: nList.length
+  // O(M) time, O(M) memory
+  var nListIndex = keyIndex(nList);
+  var nKeys = nListIndex.keys;
+  var nFree = nListIndex.free;
 
+  if (nFree.length === nList.length) {
+    // 如果 nList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
+    return {
+      list: nList,
+      moves: null
+    };
+  }
+
+  // O(N) time, O(N) memory
+  var pListIndex = keyIndex(pList);
+  var pKeys = pListIndex.keys;
+  var pFree = pListIndex.free;
+
+  if (pFree.length === pList.length) {
+    // 如果 pList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
+    return {
+      list: nList,
+      moves: null
+    };
+  }
+
+  // O(MAX(N, M)) memory
+  var rList = [];
+
+  var freeIndex = 0; // 表示没有 key 的节点已使用的个数
+  var freeCount = nFree.length; // 表示 nList 中没有 key 的节点的总个数
+  var deletedItems = 0; // 被删除的节点的个数
+
+  // O(N) time
+  // 遍历 pList 将 pList 有 key 的节点映射到 nList 的节点，如果没有映射，就用 null 表示节点将被删除。pList 空闲节点用 nList 的空闲节点按顺序占位
+  for (var i = 0; i < pList.length; i++) {
+    var pItem = pList[i];
+
+    if (typeof pItem.key !== 'undefined') {
+      // key 节点
+      if (nKeys.hasOwnProperty(pItem.key)) {
+        // 有映射
+        var itemIndex = nKeys[pItem.key];
+        rList.push(nList[itemIndex]);
+      } else {
+        // 没有映射
+        deletedItems++;
+        rList.push(null);
+      }
+    } else {
+      // 空闲节点
+      if (freeIndex < freeCount) {
+        // nList 的空闲节点还没用完，继续用
+        var _itemIndex = nFree[freeIndex++];
+        rList.push(nList[_itemIndex]);
+      } else {
+        // nList 的空闲节点用完了，这个 pList 的空闲节点没有节点与其对应，应该被删除
+        deletedItems++;
+        rList.push(null);
+      }
+    }
+  }
+
+  var lastFreeIndex = freeIndex >= nFree.length ? // nList 中下一个空闲节点的位置
+  nList.length : // nList 中空闲节点已经用完了
+  nFree[freeIndex]; // 未用完
+
+  // O(M) time
+  // 遍历 nList 将新增节点／剩余空闲节点追加到 rList 末尾
+  for (var j = 0; j < nList.length; j++) {
+    var nItem = nList[j];
+    if (nItem.key) {
+      if (!pKeys.hasOwnProperty(nItem.key)) {
+        rList.push(nItem);
+      }
+    } else if (j >= lastFreeIndex) {
+      rList.push(nItem);
+    }
+  }
+
+  var simulateList = rList.slice(0); // 复制一份，模拟 rList -> nList 重排操作
+  var simulateIndex = 0;
+  var removes = []; // 被移除的节点
+  var inserts = []; // 被插入的节点
+  var simulateItem = void 0;
+
+  for (var k = 0; k < nList.length;) {
+    var wantedItem = nList[k]; // 目标节点
+    simulateItem = simulateList[simulateIndex]; // 模拟节点
+
+    // 先模拟删除
+    while (simulateItem === null && simulateList.length) {
+      removes.push(remove(simulateList, simulateIndex, null)); // 删除不需要记录 key 的节点
+      simulateItem = simulateList[simulateIndex];
+    }
+
+    if (!simulateItem || simulateItem.key !== wantedItem.key) {
+      // 如果当前位置有 key
+      if (wantedItem.key) {
+        // 如果当前节点的位置不对，要进行移动
+        if (simulateItem && simulateItem.key) {
+          if (nKeys[simulateItem.key] !== k + 1) {
+            removes.push(remove(simulateList, simulateIndex, simulateItem.key)); // 先移除当前位置的节点
+            simulateItem = simulateList[simulateIndex]; // 删除后，该位置对应的是下一个节点
+            // 然后在当前位置插入目标节点
+            if (!simulateItem || simulateItem.key !== wantedItem.key) {
+              // 如果删除之后还不对应，就插入目标节点
+              inserts.push({ key: wantedItem.key, to: k });
+            } else {
+              // 删除后正好对应就不需要插入了
+              simulateIndex++; // 检查下一个
+            }
+          } else {
+            // nKeys[simulateItem.key] === k + 1 如果下一个目标节点和当前模拟节点对应
+            inserts.push({ key: wantedItem.key, to: k });
+          }
+        } else {
+          // 位置不对，插入
+          inserts.push({ key: wantedItem.key, to: k });
+        }
+        k++;
+      }
+      // 目标节点没有 key 但是 模拟节点有 key
+      else if (simulateItem && simulateItem.key) {
+          // 位置不对，删除
+          removes.push(remove(simulateList, simulateIndex, simulateItem.key));
+        }
+    } else {
+      simulateIndex++;
+      k++;
+    }
+  }
+
+  // 删除所有剩余节点
+  while (simulateIndex < simulateList.length) {
+    simulateItem = simulateList[simulateIndex];
+    removes.push(remove(simulateList, simulateIndex, simulateItem && simulateItem.key));
+  }
+
+  // 这种情况不需要移位，只需要删除多余的节点：没有 key 对应的节点、多余的空闲节点
+  if (removes.length === deletedItems && !inserts.length) {
+    return {
+      list: rList,
+      moves: null
+    };
+  }
+
+  return {
+    list: rList,
+    moves: {
+      removes: removes,
+      inserts: inserts
+    }
+  };
+}
 
 // reorder:
 // [f1, A, B, C, D, f2] => [f3, C, B, A, f4, E, f5]
@@ -609,72 +557,222 @@ function listDiff(pList, nList) {
 // {order: moves}
 
 // patch:
+// [f1, A1, B1, C1, D, f2]
 // 目标: [f3, C2, B2, A2, f4, E, f5]
-// 先 patch 子节点:
+// insert(null, E) => [f1, A1, B1, C1, D, f2, E]
+// insert(null, f5) => [f1, A1, B1, C1, D, f2, E, f5]
+// patch order:
+// remove(1, A) => [f1, B1, C1, D, f2, E, f5], map:{A: A1}
+// remove(2, C) => [f1, B1, D, f2, E, f5], map:{A: A1, C: C1}
+// remove(2, null) => [f1, B1, f2, E, f5]
+// insert(1, C) => [f1, C1, B1, f2, E, f5]
+// insert(3, A) => [f1, C1, B1, A1, f2, E, f5]
+// patch 子节点
 // patch(f1, f3)
 // patch(A1, A2)
 // patch(B1, B2)
 // patch(C1, C2)
-// remove D
+// remove D 已删除，不会重复删除
 // patch(f2, f4)
-// [f1, A1, B1, C1, D, f2]=> [f3, A2, B2, C2, f4]
-// patch order:
-// insert(null, E) => [f3, A2, B2, C2, f4, E]
-// insert(null, f5) => [f3, A2, B2, C2, f4, E, f5]
-// remove(1, A) => [f3, B2, C2, f4, E, f5], map:{A: A2}
-// remove(2, C) => [f3, B2, f4, E, f5], map:{A: A2, C: C2}
-// remove(2, null) => [f1, B1, f2, E, f5]
-// insert(1, C) => [f1, C1, B1, f2, E, f5]
-// insert(3, A) => [f1, C1, B1, A1, f2, E, f5]
 
-function diff(oldTree, newTree) {
-  var index = 0;
-  var patches = {};
-  if (isArray(oldTree)) {
-    var currentPatches = [];
-    diffChildren(oldTree, newTree, 0, patches, currentPatches);
-    if (currentPatches.length) {
-      patches[0] = currentPatches;
-    }
+// 映射 dom 树与 virtual-dom 树，找到对应索引的 dom 节点并保存索引映射
+function domIndex(domTree, vdomTree, indices) {
+  if (indices.length === 0) {
+    return {};
   } else {
-    diffWalk(oldTree, newTree, index, patches);
+    var mapping = {};
+    recurse(domTree, vdomTree, indices, mapping, 0);
+    return mapping;
   }
-  return patches;
 }
 
-function diffWalk(pNode, nNode, index, patches) {
-  var currentPatches = []; // 当前层级的 patch
-  if (nNode === null) {
-    // 这种情况属于：在 diffChildren 的时候该节点被标识为被删除的节点，但是不需要在这里删除（在 reorder 的时候会处理删除）
-  } else if (isVNode(pNode) && isVNode(nNode)) {
-    // 都是 VNode
-    if (pNode.tagName !== nNode.tagName || pNode.key !== nNode.key) {
-      // 不同节点，或者已标识不是同一节点，要替换
-      currentPatches.push({ type: PATCH.REPLACE, node: nNode });
-    } else {
-      var propsPatches = diffProps(pNode, nNode);
-      if (propsPatches) {
-        currentPatches.push({ type: PATCH.PROPS, props: propsPatches.set, removeProps: propsPatches.remove });
+function recurse(rootNode, vdomTree, indices, mapping, rootIndex) {
+  if (rootNode) {
+    if (indexInRange(indices, rootIndex, rootIndex)) {
+      mapping[rootIndex] = rootNode;
+    }
+    if (vdomTree.children) {
+      // 只有 VNode 要查找 VText 不需要
+      var currentIndex = rootIndex;
+      var childNodes = rootNode.childNodes;
+      for (var i = 0; i < vdomTree.children.length; ++i) {
+        var vChild = vdomTree.children[i] || {};
+        currentIndex += 1;
+        var nextIndex = currentIndex + (vChild.count || 0);
+        if (indexInRange(indices, currentIndex, nextIndex)) {
+          recurse(childNodes[i], vChild, indices, mapping, currentIndex);
+        }
+        currentIndex = nextIndex;
       }
-      // 继续 diff 子节点
-      diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
-      // const _r = listDiff2(pNode.children, nNode.children);
-      // console.log(_r);
     }
-  } else if (isVText(pNode) && isVText(nNode)) {
-    // 都是 VText
-    if (pNode.data !== nNode.data) {
-      // 内容不一样的时候才替换（只替换内容即可）
-      currentPatches.push({ type: PATCH.TEXT, data: nNode.data });
-    }
-  } else if (pNode._isComponent || nNode._isComponent) {// 组件
-    // console.log('component');
-  } else {
-    // 类型不一样，绝对要替换
-    currentPatches.push({ type: PATCH.REPLACE, node: nNode });
   }
-  if (currentPatches.length) {
-    patches[index] = currentPatches;
+}
+
+// 查找 indices 数组（已排序），判断是否存在 [min, max] 区间内的元素
+function indexInRange(indices, min, max) {
+  if (indices.length === 0 || min > max) {
+    return false;
+  }
+  var result = false;
+  var head = 0,
+      tail = indices.length - 1;
+  var current = void 0,
+      currentIndex = void 0;
+  while (head <= tail) {
+    currentIndex = (head + tail) / 2 >> 0; // 移位操作为了快速向下取整
+    current = indices[currentIndex];
+    if (head === tail) {
+      result = current >= min && current <= max;
+      break;
+    } else if (current < min) {
+      head = currentIndex + 1;
+    } else if (current > max) {
+      tail = currentIndex - 1;
+    } else {
+      // min <= current <= max
+      result = true;
+      break;
+    }
+  }
+  return result;
+}
+
+var PATCH = {
+  REPLACE: 0, // 替换节点
+  INSERT: 1, // 插入
+  REMOVE: 2, // 移除
+  REORDER: 3, // 重排
+  PROPS: 4, // 修改属性
+  TEXT: 5 // 替换文本
+};
+
+function ascending(a, b) {
+  return a > b ? 1 : -1;
+}
+
+// 根据补丁更新 DOM 节点
+function applyPatches(context, domNode, patches) {
+  for (var i = 0; i < patches.length; ++i) {
+    var _patch = patches[i];
+    switch (_patch.type) {
+      case PATCH.REPLACE:
+        // 替换元素节点
+        replaceNode(_patch.node.render(context), domNode);
+        break;
+      case PATCH.PROPS:
+        // 属性修改
+        patchProps(domNode, _patch, context);
+        break;
+      case PATCH.TEXT:
+        // 替换文本内容
+        domNode.data = _patch.data;
+        break;
+      case PATCH.REORDER:
+        // 子节点重新排序
+        patchReorder(context, domNode, _patch.moves);
+        break;
+      case PATCH.INSERT:
+        // append
+        if (domNode) {
+          domNode.appendChild(_patch.node.render(context));
+        }
+        break;
+      case PATCH.REMOVE:
+        removeNode(domNode);
+        break;
+      default:
+      // warn
+    }
+  }
+}
+
+function patch(context, domNode, patch) {
+  var patches = patch.patches;
+  // 先找需要 patch 的 dom 节点
+  var indices = [];
+  for (var p in patches) {
+    if (patches.hasOwnProperty(p)) {
+      indices.push(+p); // 一定要转成数字
+    }
+  }
+  indices.sort(ascending);
+  var pVdom = patch.pVdom;
+  if (domNode._isFragment) {
+    pVdom = { children: patch.pVdom };
+  }
+  var domMapping = domIndex(domNode, pVdom, indices);
+  for (var i = 0; i < indices.length; ++i) {
+    var idx = indices[i];
+    applyPatches(context, domMapping[idx], patches[idx]);
+  }
+}
+
+function patchReorder(context, domNode, moves) {
+  var removes = moves.removes;
+  var inserts = moves.inserts;
+  var childNodes = domNode.childNodes;
+  var keyMap = {};
+  // 先删除
+  for (var i = 0; i < removes.length; ++i) {
+    var remove = removes[i];
+    var toRemove = childNodes[remove.from];
+    if (remove.key) {
+      // 需要保留，等待重新插入
+      keyMap[remove.key] = toRemove;
+    }
+    removeNode(toRemove);
+  }
+  // 后插入
+  for (var _i = 0; _i < inserts.length; ++_i) {
+    var insert = inserts[_i];
+    var target = insert.to < childNodes.length ? childNodes[insert.to] : null;
+    var toInsert = keyMap[insert.key];
+    domNode.insertBefore(toInsert, target);
+  }
+}
+
+// 检查是否指令属性
+function isAttrDirective(attr) {
+  return (/^@|n-|:/.test(attr)
+  );
+}
+function patchProps(domNode, patch, context) {
+  var setProps = patch.props.set;
+  var removeProps = patch.props.remove;
+  for (var p in setProps) {
+    if (setProps.hasOwnProperty(p)) {
+      // 检查是否指令属性
+      if (isAttrDirective(p)) {
+        // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), setProps[p], domNode, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), setProps[p], domNode, context);
+        } else {
+          // 事件指令
+          // remove old event listener
+          // detachEvent(domNode, p.slice(1), patch.props[p]);
+          // add new event listener
+        }
+      } else {
+        // 普通属性
+        if (typeof patch.props[p] === 'undefined') {
+          removeAttr(domNode, p);
+        } else {
+          setAttr(domNode, p, patch.props[p]);
+        }
+      }
+    }
+  }
+  // @TODO remove 错误
+  for (var _p in removeProps) {
+    if (removeProps.hasOwnProperty(_p)) {
+      if (isAttrDirective(_p)) {
+        if (/^n-/.test(_p)) {} else if (/^:/.test(_p)) {
+          handleDirectiveRemove(_p.slice(1), removeProps[_p], domNode, context);
+        } else {}
+      }
+    }
   }
 }
 
@@ -720,28 +818,107 @@ function diffProps(oldTree, newTree) {
   };
 }
 
-function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) {
-  var diffs = listDiff(pChildNodes, nChildNodes, index, patches);
-  var reorderChildNodes = diffs.rList;
+// 按照先删除后插入的顺序
+function diffChildren(pChildren, nChildren, parentIndex, patches, parentPatches) {
+  var diffs = reorder(pChildren, nChildren);
+  var orderedList = diffs.list;
 
-  if (diffs.moves.length) {
-    // 需要 reorder
-    // reorder 的操作在父节点执行，所以应该加到父节点的 patch
-    var reorderPatch = { type: PATCH.REORDER, moves: diffs.moves };
-    currentPatches.push(reorderPatch);
+  var pLen = pChildren.length;
+  var oLen = orderedList.length;
+  var len = pLen > oLen ? pLen : oLen; // const len = max(pLen, oLen);
+
+  var currentIndex = parentIndex;
+  for (var i = 0; i < len; ++i) {
+    var pNode = pChildren[i];
+    var nNode = orderedList[i];
+    currentIndex = currentIndex + 1;
+    if (!pNode) {
+      if (nNode) {
+        // 旧的没有新的有，插入（末尾）
+        parentPatches.push({
+          type: PATCH.INSERT,
+          node: nNode
+        });
+      }
+    } else {
+      diffWalk(pNode, nNode, currentIndex, patches);
+    }
+    if (pNode && pNode.count) {
+      currentIndex += pNode.count;
+    }
   }
-
-  // 除了重排的 patch 还有各个子节点自身的 patch
-  var leftNode = null;
-  var currentNodeIndex = index;
-  for (var i = 0; i < pChildNodes.length; ++i) {
-    currentNodeIndex = leftNode && leftNode.count ? currentNodeIndex + leftNode.count + 1 : currentNodeIndex + 1;
-    diffWalk(pChildNodes[i], reorderChildNodes[i], currentNodeIndex, patches);
-    leftNode = pChildNodes[i];
+  if (diffs.moves) {
+    parentPatches.push({
+      type: PATCH.REORDER,
+      moves: diffs.moves
+    });
   }
 }
 
-// 按照先删除后插入的顺序
+function diffWalk(pVdom, nVdom, currentIndex, patches) {
+  var currentPatches = []; // 当前层级的 patch
+  if (nVdom === null) {
+    // * VS null
+    currentPatches.push({
+      type: PATCH.REMOVE,
+      from: currentIndex,
+      key: null
+    });
+  } else if (isVNode(pVdom) && isVNode(nVdom)) {
+    // VNode VS VNode
+    if (pVdom.tagName !== nVdom.tagName || pVdom.key !== nVdom.key) {
+      // 不同 tagName/key 节点: 替换
+      currentPatches.push({
+        type: PATCH.REPLACE,
+        node: nVdom
+      });
+    } else {
+      // 同 key 同 tagName 节点: 比较属性和子节点
+      var propsPatches = diffProps(pVdom, nVdom);
+      if (propsPatches) {
+        currentPatches.push({
+          type: PATCH.PROPS,
+          props: propsPatches
+        });
+      }
+      // 继续 diff 子节点
+      diffChildren(pVdom.children, nVdom.children, currentIndex, patches, currentPatches);
+    }
+  } else if (isVText(pVdom) && isVText(nVdom)) {
+    // VText VS VText
+    if (pVdom.data !== nVdom.data) {
+      // 内容不一样的时候才替换（只替换内容即可）
+      currentPatches.push({ type: PATCH.TEXT, data: nVdom.data });
+    }
+  } else if (pVdom._isComponent || nVdom._isComponent) {// * VS Component | Component VS *
+  } else {
+    // 不同类型的节点
+    currentPatches.push({
+      type: PATCH.REPLACE,
+      node: nVdom
+    });
+  }
+  if (currentPatches.length > 0) {
+    patches[currentIndex] = currentPatches;
+  }
+}
+
+function diff(pVdom, nVdom) {
+  var patch$$1 = {};
+  patch$$1.pVdom = pVdom;
+  var patches = {};
+  if (isArray(pVdom)) {
+    var currentPatches = [];
+    diffChildren(pVdom, nVdom, 0, patches, currentPatches);
+    if (currentPatches.length > 0) {
+      patches[0] = currentPatches;
+    }
+  } else {
+    diffWalk(pVdom, nVdom, 0, patches);
+  }
+  patch$$1.patches = patches;
+  return patch$$1;
+}
 
 function h(tagName, props, children, key) {
   var context = this || {};
@@ -854,9 +1031,22 @@ function Naive(options) {
     }
   };
   this.vdomRender = function vdomRender() {
-    return _vdomRender.call(this, function createVdom() {
+    var vdom = _vdomRender.call(this, function createVdom() {
       return h.apply(context, Array.prototype.slice.call(arguments, 0));
     }, _templateHelpers);
+    var count = 0;
+    if (vdom.length) {
+      for (var i = 0; i < vdom.length; ++i) {
+        count += 1;
+        if (vdom[i].count) {
+          count += vdom[i].count;
+        }
+      }
+    } else {
+      count = vdom.count || 1;
+    }
+    this.count = count;
+    return vdom;
   };
   this.ele = null;
   // components
@@ -885,7 +1075,7 @@ prtt.render = function render() {
   if (vdom.length) {
     // fragment
     var docFragment = createDocumentFragment();
-    var simFragment = { childNodes: [] };
+    var simFragment = { _isFragment: true, childNodes: [] };
     for (var i = 0; i < vdom.length; ++i) {
       var node = vdom[i].render(this);
       simFragment.childNodes.push(node);

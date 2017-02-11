@@ -1,6 +1,7 @@
 import { setAttr, replaceNode, removeNode, removeAttr } from '../dom';
 import { handleDirective, handleDirectiveRemove } from '../directive';
 import { attachEvent, detachEvent } from '../event';
+import { domIndex } from './dom-index';
 
 export const PATCH = {
   REPLACE: 0, // 替换节点
@@ -11,97 +12,8 @@ export const PATCH = {
   TEXT: 5 // 替换文本
 };
 
-export function patch (context, domNode, patches) {
-  const walker = {index: 0};
-  dfsWalk(context, domNode, walker, patches);
-}
-
-function dfsWalk (context, domNode, walker, patches) {
-  const currentPatches = patches[walker.index];
-
-  const len = domNode.childNodes ? domNode.childNodes.length : 0;
-  for (let i = 0; i < len; i++) {
-    const child = domNode.childNodes[i];
-    walker.index++;
-    dfsWalk(context, child, walker, patches);
-  }
-  if (currentPatches) {
-    applyPatches(context, domNode, currentPatches);
-  }
-}
-
-// @TODO 重用 dom 节点
-function patchReorder (context, domNode, moves) {
-  // console.log(moves);
-  const keyMap = {};
-  for (let i = 0; i < moves.length; ++i) {
-    const move = moves[i];
-    switch (move.type) {
-      case PATCH.INSERT: // 插入新节点
-        const target = domNode.childNodes[move.index] || null; // null 插入末尾
-        const toInsert = typeof move.item.key !== 'undefined' && keyMap[move.item.key] || move.item.render(context);
-        domNode.insertBefore(toInsert, target);
-        break;
-      case PATCH.REMOVE:
-        const toRemove = domNode.childNodes[move.index];
-        if (typeof move.key !== 'undefined') {
-          keyMap[move.key] = toRemove;
-        }
-        // console.log(toRemove);
-        removeNode(toRemove);
-        break;
-      default:
-        // error type
-    }
-  }
-}
-
-// 检查是否指令属性
-function isAttrDirective (attr) {
-  return /^@|n-|:/.test(attr);
-}
-// 检查是否事件指令
-function isEventDirective (attr) {
-  return /^@/.test(attr);
-}
-
-function patchProps (domNode, patch, context) {
-  for (let p in patch.props) {
-    if (patch.props.hasOwnProperty(p)) {
-      // 检查是否指令属性
-      if (isAttrDirective(p)) {
-        // 处理指令
-        if (/^n-/.test(p)) {
-          handleDirective(p.slice(2), patch.props[p], domNode, context);
-        } else if (/^:/.test(p)) {
-          handleDirective(p.slice(1), patch.props[p], domNode, context);
-        } else {
-          // 事件指令
-          // remove old event listener
-          // detachEvent(domNode, p.slice(1), patch.props[p]);
-          // add new event listener
-        }
-      } else { // 普通属性
-        if (typeof patch.props[p] === 'undefined') {
-          removeAttr(domNode, p);
-        } else {
-          setAttr(domNode, p, patch.props[p]);
-        }
-      }
-    }
-  }
-  // @TODO remove 错误
-  for (let p in patch.removeProps) {
-    if (patch.removeProps.hasOwnProperty(p)) {
-      if (isAttrDirective(p)) {
-        if (/^n-/.test(p)) {
-        } else if (/^:/.test(p)) {
-          handleDirectiveRemove(p.slice(1), patch.removeProps[p], domNode, context);
-        } else {
-        }
-      }
-    }
-  }
+function ascending(a, b) {
+  return a > b ? 1 : -1;
 }
 
 // 根据补丁更新 DOM 节点
@@ -121,8 +33,110 @@ function applyPatches (context, domNode, patches) {
       case PATCH.REORDER: // 子节点重新排序
         patchReorder(context, domNode, patch.moves);
         break;
+      case PATCH.INSERT: // append
+        if (domNode) {
+          domNode.appendChild(patch.node.render(context));
+        }
+        break;
+      case PATCH.REMOVE:
+        removeNode(domNode);
+        break;
       default:
         // warn
+    }
+  }
+}
+
+export function patch (context, domNode, patch) {
+  const patches = patch.patches;
+  // 先找需要 patch 的 dom 节点
+  const indices = [];
+  for (let p in patches) {
+    if (patches.hasOwnProperty(p)) {
+      indices.push(+p); // 一定要转成数字
+    }
+  }
+  indices.sort(ascending);
+  let pVdom = patch.pVdom;
+  if (domNode._isFragment) {
+    pVdom = { children: patch.pVdom };
+  }
+  const domMapping = domIndex(domNode, pVdom, indices);
+  for (let i = 0; i < indices.length; ++i) {
+    const idx = indices[i];
+    applyPatches(context, domMapping[idx], patches[idx]);
+  }
+}
+
+function patchReorder (context, domNode, moves) {
+  const removes = moves.removes;
+  const inserts = moves.inserts;
+  const childNodes = domNode.childNodes;
+  const keyMap = {};
+  // 先删除
+  for (let i = 0; i < removes.length; ++i) {
+    const remove = removes[i];
+    const toRemove = childNodes[remove.from];
+    if (remove.key) { // 需要保留，等待重新插入
+      keyMap[remove.key] = toRemove;
+    }
+    removeNode(toRemove);
+  }
+  // 后插入
+  for (let i = 0; i < inserts.length; ++i) {
+    const insert = inserts[i];
+    const target = insert.to < childNodes.length ? childNodes[insert.to] : null;
+    const toInsert = keyMap[insert.key];
+    domNode.insertBefore(toInsert, target);
+  }
+}
+
+// 检查是否指令属性
+function isAttrDirective (attr) {
+  return /^@|n-|:/.test(attr);
+}
+// 检查是否事件指令
+function isEventDirective (attr) {
+  return /^@/.test(attr);
+}
+
+function patchProps (domNode, patch, context) {
+  const setProps = patch.props.set;
+  const removeProps = patch.props.remove;
+  for (let p in setProps) {
+    if (setProps.hasOwnProperty(p)) {
+      // 检查是否指令属性
+      if (isAttrDirective(p)) {
+        // 处理指令
+        if (/^n-/.test(p)) {
+          handleDirective(p.slice(2), setProps[p], domNode, context);
+        } else if (/^:/.test(p)) {
+          handleDirective(p.slice(1), setProps[p], domNode, context);
+        } else {
+          // 事件指令
+          // remove old event listener
+          // detachEvent(domNode, p.slice(1), patch.props[p]);
+          // add new event listener
+        }
+      } else { // 普通属性
+        if (typeof patch.props[p] === 'undefined') {
+          removeAttr(domNode, p);
+        } else {
+          setAttr(domNode, p, patch.props[p]);
+        }
+      }
+    }
+  }
+  // @TODO remove 错误
+  for (let p in removeProps) {
+    if (removeProps.hasOwnProperty(p)) {
+      if (isAttrDirective(p)) {
+        if (/^n-/.test(p)) {
+        } else if (/^:/.test(p)) {
+          handleDirectiveRemove(p.slice(1), removeProps[p], domNode, context);
+        } else {
+        }
+      }
     }
   }
 }
