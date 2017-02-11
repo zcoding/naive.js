@@ -30,16 +30,25 @@ function dfsWalk (context, domNode, walker, patches) {
   }
 }
 
+// @TODO 重用 dom 节点
 function patchReorder (context, domNode, moves) {
+  // console.log(moves);
+  const keyMap = {};
   for (let i = 0; i < moves.length; ++i) {
     const move = moves[i];
     switch (move.type) {
       case PATCH.INSERT: // 插入新节点
         const target = domNode.childNodes[move.index] || null; // null 插入末尾
-        domNode.insertBefore(move.item.render(context), target);
+        const toInsert = typeof move.item.key !== 'undefined' && keyMap[move.item.key] || move.item.render(context);
+        domNode.insertBefore(toInsert, target);
         break;
       case PATCH.REMOVE:
-        removeNode(domNode.childNodes[move.index]);
+        const toRemove = domNode.childNodes[move.index];
+        if (typeof move.key !== 'undefined') {
+          keyMap[move.key] = toRemove;
+        }
+        // console.log(toRemove);
+        removeNode(toRemove);
         break;
       default:
         // error type

@@ -1,5 +1,6 @@
 import { isVNode, isVText } from './utils';
 import listDiff from './list-diff';
+import listDiff2 from './list-diff2';
 import { PATCH } from './patch';
 import { isArray, isPlainObject } from '../utils';
 
@@ -33,12 +34,15 @@ function diffWalk (pNode, nNode, index, patches) {
       }
       // 继续 diff 子节点
       diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
+      // const _r = listDiff2(pNode.children, nNode.children);
+      // console.log(_r);
     }
   } else if (isVText(pNode) && isVText(nNode)) { // 都是 VText
     if (pNode.data !== nNode.data) { // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({type: PATCH.TEXT, data: nNode.data});
     }
-  } else if (pNode._isComponent && nNode._isComponent) { // 都是组件
+  } else if (pNode._isComponent || nNode._isComponent) { // 组件
+    // console.log('component');
   } else { // 类型不一样，绝对要替换
     currentPatches.push({type: PATCH.REPLACE, node: nNode});
   }
@@ -105,5 +109,33 @@ function diffChildren (pChildNodes, nChildNodes, index, patches, currentPatches)
       : currentNodeIndex + 1
     diffWalk(pChildNodes[i], reorderChildNodes[i], currentNodeIndex, patches);
     leftNode = pChildNodes[i];
+  }
+}
+
+// 按照先删除后插入的顺序
+function diffChildren2 (pChildNodes, nChildNodes, index, patches, currentPatches) {
+  const orderedSet = listDiff2(pChildNodes, nChildNodes);
+  const rList = orderedSet.rList;
+
+  const aLen = pChildNodes.length;
+  const bLen = rList.length;
+  const len = aLen > bLen ? aLen : bLen; // const len = max(aLen, bLen);
+
+  let currentNodeIndex = index;
+  for (let i = 0; i < len; ++i) {
+    const pNode = pChildNodes[i];
+    const rNode = rList[i];
+    currentNodeIndex = (pNode && pNode.count) ? currentNodeIndex + pNode.count + 1 : currentNodeIndex + 1;
+
+    if (!pNode) {
+      if (rNode) { // 旧的没有新的有，插入
+        currentPatches.push({type: PATCH.INSERT, index: null, item: rNode});
+      }
+    } else {
+      diffWalk(pNode, rNode, currentNodeIndex, patches);
+    }
+  }
+  if (orderedSet.moves) {
+    currentPatches.push({type: PATCH.REORDER, moves: orderedSet.moves});
   }
 }

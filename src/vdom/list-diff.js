@@ -45,10 +45,11 @@ export default function listDiff (pList, nList) {
     }
   }
   const moves = [];
-  function remove (index) {
+  function remove (index, key) {
     moves.push({
       type: PATCH.REMOVE,
-      index: index
+      index: index,
+      key: key
     });
   }
   function insert (index, item) {
@@ -85,13 +86,13 @@ export default function listDiff (pList, nList) {
         } else { // 旧列表中存在，需要对 sItem 和 nItem 进行对调
           const nextSItem = simulateList[s + 1];
           if (nextSItem && (nextSItem.key === nItemKey)) {
-            remove(n);
+            remove(n, sItemKey);
             simulateList.splice(s, 1);
             ++s;
           } else {
             insert(n, nItem);
             if (n === nList.length-1) {
-              remove(n+1);
+              remove(n+1, sItemKey);
             }
           }
         }
@@ -100,6 +101,7 @@ export default function listDiff (pList, nList) {
       insert(n, nItem);
     }
   }
+  // console.log(moves)
   return {
     moves: moves,
     rList: rList

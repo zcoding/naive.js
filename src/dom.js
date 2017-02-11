@@ -37,7 +37,10 @@ export function inDoc(node) {
 }
 
 export function removeNode(node) {
-  node.parentNode.removeChild(node)
+  const parentNode = node.parentNode;
+  if (parentNode) {
+    parentNode.removeChild(node);
+  }
 }
 
 export function createAnchor(name) {

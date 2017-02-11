@@ -72,7 +72,10 @@ function query(selector, context) {
 
 
 function removeNode(node) {
-  node.parentNode.removeChild(node);
+  var parentNode = node.parentNode;
+  if (parentNode) {
+    parentNode.removeChild(node);
+  }
 }
 
 
@@ -353,17 +356,26 @@ function dfsWalk(context, domNode, walker, patches) {
   }
 }
 
+// @TODO 重用 dom 节点
 function patchReorder(context, domNode, moves) {
+  // console.log(moves);
+  var keyMap = {};
   for (var i = 0; i < moves.length; ++i) {
     var move = moves[i];
     switch (move.type) {
       case PATCH.INSERT:
         // 插入新节点
         var target = domNode.childNodes[move.index] || null; // null 插入末尾
-        domNode.insertBefore(move.item.render(context), target);
+        var toInsert = typeof move.item.key !== 'undefined' && keyMap[move.item.key] || move.item.render(context);
+        domNode.insertBefore(toInsert, target);
         break;
       case PATCH.REMOVE:
-        removeNode(domNode.childNodes[move.index]);
+        var toRemove = domNode.childNodes[move.index];
+        if (typeof move.key !== 'undefined') {
+          keyMap[move.key] = toRemove;
+        }
+        // console.log(toRemove);
+        removeNode(toRemove);
         break;
       default:
       // error type
@@ -442,7 +454,6 @@ function applyPatches(context, domNode, patches) {
   }
 }
 
-// 分别找到有 key 的元素位置和没有 key 的元素的位置
 function makeKeyIndexAndFree(list) {
   var keyIndex = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
@@ -492,10 +503,11 @@ function listDiff(pList, nList) {
     }
   }
   var moves = [];
-  function remove(index) {
+  function remove(index, key) {
     moves.push({
       type: PATCH.REMOVE,
-      index: index
+      index: index,
+      key: key
     });
   }
   function insert(index, item) {
@@ -536,13 +548,13 @@ function listDiff(pList, nList) {
           // 旧列表中存在，需要对 sItem 和 nItem 进行对调
           var nextSItem = simulateList[s + 1];
           if (nextSItem && nextSItem.key === nItemKey) {
-            remove(n);
+            remove(n, sItemKey);
             simulateList.splice(s, 1);
             ++s;
           } else {
             insert(n, nItem);
             if (n === nList.length - 1) {
-              remove(n + 1);
+              remove(n + 1, sItemKey);
             }
           }
         }
@@ -552,11 +564,70 @@ function listDiff(pList, nList) {
       insert(n, nItem);
     }
   }
+  // console.log(moves)
   return {
     moves: moves,
     rList: rList
   };
 }
+
+// 分别找到有 key 的元素位置和没有 key 的元素的位置
+
+
+// reorder:
+// [f1, A, B, C, D, f2] => [f3, C, B, A, f4, E, f5]
+// rList: [f3, A, B, C, null, f4]
+// rList: [f3, A, B, C, null, f4, E, f5]
+// deletedItems: 1
+// simulateList: [f3, A, B, C, null, f4, E, f5]
+// nList:        [f3, C, B, A, f4,   E,  f5   ]
+// si:0, k:0, nItem:f3, sItem:f3
+// s1:1, k:1, nItem:C, sItem:A
+// remove(1, A) => simulateList:[f3, B, C, null, f4, E, f5], sItem:B
+// insert(1, C) k++
+// si:1, k:2, nItem:B, sItem:B
+// si:2, k:3, nItem:A, sItem:C
+// remove(2, C) => simulateList:[f3, B, null, f4, E, f5], sItem:null
+// insert(3, A) k++
+// si:2, k:4, nItem:f4, sItem:null
+// remove(2, null) => simulateList:[f3, B, f4, E, f5], sItem:f4
+// si:2, k:4, nItem:f4, sItem:f4 => si++, k++
+// si:3, k:5, nItem:E, sItem:E => si++, k++
+// si:4, k:6, nItem:f5, sItem:f5 => si++, k++
+// si:5, k:7
+// moves:{removes: [(1, A), (2, C), (2, null)], inserts: [(1, C), (3, A)]}
+
+// diffChildren:
+// pList: [f1, A1, B1, C1, D,    f2       ]
+// rList: [f3, A2, B2, C2, null, f4, E, f5]
+// diff(f1, f3)
+// diff(A1, A2)
+// diff(B1, B2)
+// diff(C1, C2)
+// diff(D, null) => remove(D)
+// diff(f2, f4)
+// insert(null, E)
+// insert(null, f5)
+// {order: moves}
+
+// patch:
+// 目标: [f3, C2, B2, A2, f4, E, f5]
+// 先 patch 子节点:
+// patch(f1, f3)
+// patch(A1, A2)
+// patch(B1, B2)
+// patch(C1, C2)
+// remove D
+// patch(f2, f4)
+// [f1, A1, B1, C1, D, f2]=> [f3, A2, B2, C2, f4]
+// patch order:
+// insert(null, E) => [f3, A2, B2, C2, f4, E]
+// insert(null, f5) => [f3, A2, B2, C2, f4, E, f5]
+// remove(1, A) => [f3, B2, C2, f4, E, f5], map:{A: A2}
+// remove(2, C) => [f3, B2, f4, E, f5], map:{A: A2, C: C2}
+// remove(2, null) => [f1, B1, f2, E, f5]
+// insert(1, C) => [f1, C1, B1, f2, E, f5]
+// insert(3, A) => [f1, C1, B1, A1, f2, E, f5]
 
 function diff(oldTree, newTree) {
   var index = 0;
@@ -589,6 +660,8 @@ function diffWalk(pNode, nNode, index, patches) {
       }
       // 继续 diff 子节点
       diffChildren(pNode.children, nNode.children, index, patches, currentPatches);
+      // const _r = listDiff2(pNode.children, nNode.children);
+      // console.log(_r);
     }
   } else if (isVText(pNode) && isVText(nNode)) {
     // 都是 VText
@@ -596,7 +669,8 @@ function diffWalk(pNode, nNode, index, patches) {
       // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({ type: PATCH.TEXT, data: nNode.data });
     }
-  } else if (pNode._isComponent && nNode._isComponent) {// 都是组件
+  } else if (pNode._isComponent || nNode._isComponent) {// 组件
+    // console.log('component');
   } else {
     // 类型不一样，绝对要替换
     currentPatches.push({ type: PATCH.REPLACE, node: nNode });
@@ -668,6 +742,8 @@ function diffChildren(pChildNodes, nChildNodes, index, patches, currentPatches) 
     leftNode = pChildNodes[i];
   }
 }
+
+// 按照先删除后插入的顺序
 
 function h(tagName, props, children, key) {
   var context = this || {};
