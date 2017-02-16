@@ -1,4 +1,4 @@
-import { setAttr, removeClass } from './dom';
+import { setAttr, removeAttr, removeClass } from './dom';
 import { isArray } from './utils';
 
 import klass from './directives/class';
@@ -17,7 +17,15 @@ export function handleDirective (directive, value, element, context) {
       style(value, element, context);
       break;
     default:
-      setAttr(element, directive, value);
+      if (directive === 'disabled' || directive === 'checked') {
+        if (value) {
+          setAttr(element, directive, directive);
+        } else {
+          removeAttr(element, directive);
+        }
+      } else {
+        setAttr(element, directive, value);
+      }
       break;
   }
 }

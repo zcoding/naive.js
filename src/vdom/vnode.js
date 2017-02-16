@@ -1,7 +1,7 @@
 import { createElement, setAttr, appendChild } from '../dom';
 import VText from './vtext';
-import { isVNode, isVText } from './utils';
-import { isArray, isFunction } from '../utils';
+import { isVNode, isVText, isVComponent } from './utils';
+import { isArray, isFunction, warn } from '../utils';
 import { handleDirective } from '../directive';
 import { attachEvent } from '../event';
 
@@ -13,14 +13,14 @@ export default function VNode (tagName, props, children, key) {
   children = children || [];
   for (let i = 0; i < children.length; ++i) {
     const child = children[i];
-    if (isVNode(child) || isVText(child) || child._isComponent) {
+    if (isVNode(child) || isVText(child) || isVComponent(child)) {
       childNodes.push(child);
     } else if (typeof child === 'string' || typeof child === 'number') {
       childNodes.push(new VText(child));
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
     } else {
-      // ignore
+      warn('children 类型不支持');
     }
   }
   this.children = childNodes;
@@ -28,7 +28,7 @@ export default function VNode (tagName, props, children, key) {
   for (let i = 0; i < this.children.length; ++i) {
     count += this.children[i].count || 0;
   }
-  this.count = count; // 记录子节点数，方便 patch 的时候找到节点位置
+  this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
 // 检查是否指令属性
@@ -41,29 +41,28 @@ function isEventDirective (attr) {
   return /^@/.test(attr);
 }
 
-VNode.prototype.render = function vdom2dom(context) {
-  const el = createElement(this.tagName);
+VNode.prototype.render = function renderVNodeToElement(context) {
+  const element = createElement(this.tagName);
   const props = this.props;
   for (let p in props) {
-    if (checkAttrDirective(p)) {
-      // 处理指令
+    if (props.hasOwnProperty(p)) {
       if (/^n-/.test(p)) {
-        handleDirective(p.slice(2), props[p], el, context);
+        handleDirective(p.slice(2), props[p], element, context);
       } else if (/^:/.test(p)) {
-        handleDirective(p.slice(1), props[p], el, context);
-      } else {
+        handleDirective(p.slice(1), props[p], element, context);
+      } else if (/^@/.test(p)) {
         const eventName = p.slice(1);
         const handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
-        attachEvent(el, eventName, function handler(evt) {
+        attachEvent(element, eventName, function handler(evt) {
           handlerFunc.call(context, evt);
         });
+      } else {
+        setAttr(element, p, props[p]);
       }
-    } else {
-      setAttr(el, p, props[p]);
     }
   }
   for (let i = 0; i < this.children.length; ++i) {
-    appendChild(this.children[i].render(context), el);
+    appendChild(this.children[i].render(context), element);
   }
-  return el;
+  return element;
 };

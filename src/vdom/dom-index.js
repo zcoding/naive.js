@@ -14,7 +14,7 @@ function recurse (rootNode, vdomTree, indices, mapping, rootIndex) {
     if (indexInRange(indices, rootIndex, rootIndex)) {
       mapping[rootIndex] = rootNode;
     }
-    if (vdomTree.children) { // 只有 VNode 要查找 VText 不需要
+    if (vdomTree.children) { // 只有 VNode 要查找 VText/VComponent 不需要
       let currentIndex = rootIndex;
       const childNodes = rootNode.childNodes;
       for (let i = 0; i < vdomTree.children.length; ++i) {

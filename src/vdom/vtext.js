@@ -5,6 +5,6 @@ export default function VText (text) {
   this.data = text;
 }
 
-VText.prototype.render = function vdom2dom () {
+VText.prototype.render = function renderVTextToTextNode () {
   return createTextNode(this.data);
 };

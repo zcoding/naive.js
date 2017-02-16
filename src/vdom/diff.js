@@ -1,4 +1,4 @@
-import { isVNode, isVText } from './utils';
+import { isVNode, isVText, isVComponent } from './utils';
 import { isArray, isPlainObject } from '../utils';
 import listDiff from './list-diff';
 import { PATCH } from './patch';
@@ -107,7 +107,7 @@ function diffWalk (pVdom, nVdom, currentIndex, patches) {
     if (pVdom.data !== nVdom.data) { // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({type: PATCH.TEXT, data: nVdom.data});
     }
-  } else if (pVdom._isComponent || nVdom._isComponent) { // * VS Component | Component VS *
+  } else if (isVComponent(pVdom) || isVComponent(nVdom)) { // * VS Component | Component VS *
   } else { // 不同类型的节点
     currentPatches.push({
       type: PATCH.REPLACE,

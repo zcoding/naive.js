@@ -16,6 +16,10 @@ var isArray = Array.isArray ? Array.isArray : function isArray(obj) {
   return Object.prototype.toString.call(obj) === '[object Array]';
 };
 
+function toArray$$1(obj) {
+  return Array.prototype.slice.call(obj, 0);
+}
+
 function isUndefined(obj) {
   return typeof obj === 'undefined';
 }
@@ -43,13 +47,6 @@ function isPlainObject(obj) {
 
  // asap async
 
-/**
- * 获取元素
- *
- * IE 8 只支持到 CSS2 选择器
- *
- * @param {String} selector
- */
 function getElement(selector) {
   return typeof selector === 'string' ? query(selector) : selector;
 }
@@ -62,9 +59,7 @@ function createTextNode(text) {
   return document.createTextNode(text);
 }
 
-function createDocumentFragment() {
-  return document.createDocumentFragment();
-}
+
 
 function query(selector, context) {
   context = context || document;
@@ -178,12 +173,11 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-// virtual text node
 function VText(text) {
   this.data = text;
 }
 
-VText.prototype.render = function vdom2dom() {
+VText.prototype.render = function renderVTextToTextNode() {
   return createTextNode(this.data);
 };
 
@@ -227,7 +221,15 @@ function handleDirective(directive, value, element, context) {
       style(value, element, context);
       break;
     default:
-      setAttr(element, directive, value);
+      if (directive === 'disabled' || directive === 'checked') {
+        if (value) {
+          setAttr(element, directive, directive);
+        } else {
+          removeAttr(element, directive);
+        }
+      } else {
+        setAttr(element, directive, value);
+      }
       break;
   }
 }
@@ -272,14 +274,14 @@ function VNode(tagName, props, children, key) {
   children = children || [];
   for (var i = 0; i < children.length; ++i) {
     var child = children[i];
-    if (isVNode(child) || isVText(child) || child._isComponent) {
+    if (isVNode(child) || isVText(child) || isVComponent(child)) {
       childNodes.push(child);
     } else if (typeof child === 'string' || typeof child === 'number') {
       childNodes.push(new VText(child));
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
     } else {
-      // ignore
+      warn('children 类型不支持');
     }
   }
   this.children = childNodes;
@@ -287,42 +289,36 @@ function VNode(tagName, props, children, key) {
   for (var _i = 0; _i < this.children.length; ++_i) {
     count += this.children[_i].count || 0;
   }
-  this.count = count; // 记录子节点数，方便 patch 的时候找到节点位置
+  this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
 // 检查是否指令属性
-function checkAttrDirective(attr) {
-  return (/^@|n-|:/.test(attr)
-  );
-}
-
-VNode.prototype.render = function vdom2dom(context) {
-  var el = createElement(this.tagName);
+VNode.prototype.render = function renderVNodeToElement(context) {
+  var element = createElement(this.tagName);
   var props = this.props;
   for (var p in props) {
-    if (checkAttrDirective(p)) {
-      // 处理指令
+    if (props.hasOwnProperty(p)) {
       if (/^n-/.test(p)) {
-        handleDirective(p.slice(2), props[p], el, context);
+        handleDirective(p.slice(2), props[p], element, context);
       } else if (/^:/.test(p)) {
-        handleDirective(p.slice(1), props[p], el, context);
-      } else {
+        handleDirective(p.slice(1), props[p], element, context);
+      } else if (/^@/.test(p)) {
         (function () {
           var eventName = p.slice(1);
           var handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
-          attachEvent(el, eventName, function handler(evt) {
+          attachEvent(element, eventName, function handler(evt) {
             handlerFunc.call(context, evt);
           });
         })();
+      } else {
+        setAttr(element, p, props[p]);
       }
-    } else {
-      setAttr(el, p, props[p]);
     }
   }
   for (var i = 0; i < this.children.length; ++i) {
-    appendChild(this.children[i].render(context), el);
+    appendChild(this.children[i].render(context), element);
   }
-  return el;
+  return element;
 };
 
 function isVNode(node) {
@@ -331,6 +327,10 @@ function isVNode(node) {
 
 function isVText(node) {
   return node instanceof VText;
+}
+
+function isVComponent(node) {
+  return node instanceof Naive;
 }
 
 // 分别找到有 key 的元素位置和没有 key 的元素的位置
@@ -592,7 +592,7 @@ function recurse(rootNode, vdomTree, indices, mapping, rootIndex) {
       mapping[rootIndex] = rootNode;
     }
     if (vdomTree.children) {
-      // 只有 VNode 要查找 VText 不需要
+      // 只有 VNode 要查找 VText/VComponent 不需要
       var currentIndex = rootIndex;
       var childNodes = rootNode.childNodes;
       for (var i = 0; i < vdomTree.children.length; ++i) {
@@ -736,6 +736,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -776,7 +777,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -890,7 +890,7 @@ function diffWalk(pVdom, nVdom, currentIndex, patches) {
       // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({ type: PATCH.TEXT, data: nVdom.data });
     }
-  } else if (pVdom._isComponent || nVdom._isComponent) {// * VS Component | Component VS *
+  } else if (isVComponent(pVdom) || isVComponent(nVdom)) {// * VS Component | Component VS *
   } else {
     // 不同类型的节点
     currentPatches.push({
@@ -923,13 +923,14 @@ function diff(pVdom, nVdom) {
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
-  if (isVNode(tagName) || isVText(tagName)) {
+  if (isVNode(tagName) || isVText(tagName) || isVComponent(tagName)) {
     return tagName;
   } else if (isPlainObject(tagName)) {
     if (components.hasOwnProperty(tagName.tagName)) {
-      console.log(tagName.tagName);
+      return components[tagName.tagName]();
+    } else {
+      return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
     }
-    return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
   } else if (isArray(tagName)) {
     var list = [];
     for (var i = 0; i < tagName.length; ++i) {
@@ -998,18 +999,15 @@ function Naive(options) {
   options = options || {};
   this.name = options.name || '';
   this._hooks = {};
-  this._isComponent = true;
   if ('state' in options) {
     if (!isFunction(options.state)) {
-      // 必须是 function
       throw new NaiveException('state 必须是 [Function]');
     }
     var _state = options.state();
     if (isPlainObject(_state)) {
       this.state = _state;
     } else {
-      warn('state 必须返回 [Plain Object]');
-      this.state = {};
+      throw new NaiveException('state 必须返回 [Plain Object]');
     }
   } else {
     this.state = {};
@@ -1032,23 +1030,11 @@ function Naive(options) {
   };
   this.vdomRender = function vdomRender() {
     var vdom = _vdomRender.call(this, function createVdom() {
-      return h.apply(context, Array.prototype.slice.call(arguments, 0));
+      return h.apply(context, toArray$$1(arguments));
     }, _templateHelpers);
-    var count = 0;
-    if (vdom.length) {
-      for (var i = 0; i < vdom.length; ++i) {
-        count += 1;
-        if (vdom[i].count) {
-          count += vdom[i].count;
-        }
-      }
-    } else {
-      count = vdom.count || 1;
-    }
-    this.count = count;
     return vdom;
   };
-  this.ele = null;
+  this.$root = null;
   // components
   this.components = {};
   var componentsOptions = options.components || {};
@@ -1071,22 +1057,8 @@ function createComponentCreator(context, componentDefine) {
 var prtt = Naive.prototype;
 
 prtt.render = function render() {
-  var vdom = this.vdom;
-  if (vdom.length) {
-    // fragment
-    var docFragment = createDocumentFragment();
-    var simFragment = { _isFragment: true, childNodes: [] };
-    for (var i = 0; i < vdom.length; ++i) {
-      var node = vdom[i].render(this);
-      simFragment.childNodes.push(node);
-      appendChild(node, docFragment);
-    }
-    this.ele = simFragment;
-    return docFragment;
-  } else {
-    this.ele = vdom.render(this);
-    return this.ele;
-  }
+  this.$root = this.vdom.render(this);
+  return this.$root;
 };
 
 prtt.setState = function setState(state) {
@@ -1107,7 +1079,7 @@ prtt.update = function update() {
   var patches = diff(preVdom, this.vdom);
   // console.log(patches);
   if (patches) {
-    patch(this, this.ele, patches);
+    patch(this, this.$root, patches);
   } else {
     warn('不需要更新视图');
   }

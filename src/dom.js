@@ -1,4 +1,4 @@
-import { isUndefined } from './utils';
+import { isUndefined, toArray } from './utils';
 
 /**
  * 获取元素
@@ -94,7 +94,7 @@ const supportClassList = !isUndefined(document.createElement('div').classList);
 
 let getClasses = supportClassList ?
   function(element) {
-    return Array.prototype.slice.call(element.classList);
+    return toArray(element.classList);
   }
   :
   function(element) {

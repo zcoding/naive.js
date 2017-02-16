@@ -1,7 +1,8 @@
-import { getElement, createDocumentFragment, appendChild, replaceNode } from './dom';
-import { diff, patch } from './vdom/vdom';
+import { getElement, appendChild, replaceNode } from './dom';
+import { diff } from './vdom/diff';
+import { patch } from './vdom/patch';
 import h from './vdom/h';
-import { warn, extend, isFunction, isPlainObject } from './utils';
+import { warn, extend, isFunction, isPlainObject, toArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
 
@@ -13,18 +14,15 @@ export default function Naive (options) {
   options = options || {};
   this.name = options.name || '';
   this._hooks = {};
-  this._isComponent = true;
   if ('state' in options) {
     if (!isFunction(options.state)) {
-      // 必须是 function
       throw new NaiveException('state 必须是 [Function]');
     }
     const _state = options.state();
     if (isPlainObject(_state)) {
       this.state = _state;
     } else {
-      warn('state 必须返回 [Plain Object]');
-      this.state = {};
+      throw new NaiveException('state 必须返回 [Plain Object]');
     }
   } else {
     this.state = {};
@@ -49,25 +47,13 @@ export default function Naive (options) {
     const vdom = _vdomRender.call(
       this,
       function createVdom () {
-        return h.apply(context, Array.prototype.slice.call(arguments, 0));
+        return h.apply(context, toArray(arguments));
       },
       _templateHelpers
     );
-    let count = 0;
-    if (vdom.length) {
-      for (let i = 0; i < vdom.length; ++i) {
-        count += 1;
-        if (vdom[i].count) {
-          count += vdom[i].count;
-        }
-      }
-    } else {
-      count = vdom.count || 1;
-    }
-    this.count = count;
     return vdom;
   };
-  this.ele = null;
+  this.$root = null;
   // components
   this.components = {};
   const componentsOptions = options.components || {};
@@ -90,21 +76,8 @@ function createComponentCreator (context, componentDefine) {
 const prtt = Naive.prototype;
 
 prtt.render = function render () {
-  const vdom = this.vdom;
-  if (vdom.length) { // fragment
-    const docFragment = createDocumentFragment();
-    const simFragment = { _isFragment: true, childNodes: [] };
-    for (let i = 0; i < vdom.length; ++i) {
-      const node = vdom[i].render(this);
-      simFragment.childNodes.push(node);
-      appendChild(node, docFragment);
-    }
-    this.ele = simFragment;
-    return docFragment;
-  } else {
-    this.ele = vdom.render(this);
-    return this.ele;
-  }
+  this.$root = this.vdom.render(this);
+  return this.$root;
 };
 
 prtt.setState = function setState (state) {
@@ -124,7 +97,7 @@ prtt.update = function update () {
   const patches = diff(preVdom, this.vdom);
   // console.log(patches);
   if (patches) {
-    patch(this, this.ele, patches);
+    patch(this, this.$root, patches);
   } else {
     warn('不需要更新视图');
   }

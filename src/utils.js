@@ -14,6 +14,10 @@ export const isArray = Array.isArray ? Array.isArray : function isArray (obj) {
   return Object.prototype.toString.call(obj) === '[object Array]';
 };
 
+export function toArray (obj) {
+  return Array.prototype.slice.call(obj, 0);
+}
+
 export function isUndefined (obj) {
   return typeof obj === 'undefined';
 }
