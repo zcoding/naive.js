@@ -5,6 +5,7 @@ import h from './vdom/h';
 import { warn, extend, isFunction, isPlainObject, toArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
+// import Observer from './observer';
 
 function emptyRender () {
   return null;
@@ -53,6 +54,7 @@ export default function Naive (options) {
       return nodes;
     }
   };
+  // this._obs_ = new Observer(this.state);
   this.vdomRender = function vdomRender () {
     const vdom = _vdomRender.call(
       this,

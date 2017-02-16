@@ -43,5 +43,9 @@ export function isPlainObject (obj) {
   return obj != null && typeof obj === 'object' && !isArray(obj) && Object.prototype.toString.call(obj) === '[object Object]';
 }
 
+export function hasOwn (obj, prop) {
+  return obj.hasOwnProperty(prop);
+}
+
 let resolved = typeof Promise!=='undefined' && Promise.resolve();
 export const defer = resolved ? (f => { resolved.then(f); }) : setTimeout; // asap async

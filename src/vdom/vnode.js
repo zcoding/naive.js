@@ -2,7 +2,7 @@ import { createElement, setAttr, appendChild } from '../dom';
 import VText from './vtext';
 import { isVNode, isVText, isVComponent } from './utils';
 import { isArray, isFunction, warn } from '../utils';
-import { handleDirective } from '../directive';
+import { handleDirective, bindDirective } from '../directive';
 import { attachEvent } from '../event';
 
 export default function VNode (tagName, props, children, key) {
@@ -47,6 +47,7 @@ VNode.prototype.render = function renderVNodeToElement(context) {
   for (let p in props) {
     if (props.hasOwnProperty(p)) {
       if (/^n-/.test(p)) {
+        bindDirective(p.slice(2), props[p], element, context);
         handleDirective(p.slice(2), props[p], element, context);
       } else if (/^:/.test(p)) {
         handleDirective(p.slice(1), props[p], element, context);

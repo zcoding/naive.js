@@ -1,9 +1,10 @@
 import { setAttr, removeAttr, removeClass } from './dom';
 import { isArray } from './utils';
-
 import klass from './directives/class';
 import show from './directives/show';
 import style from './directives/style';
+import model from './directives/model';
+import { attachEvent } from './event';
 
 export function handleDirective (directive, value, element, context) {
   switch (directive) {
@@ -16,6 +17,9 @@ export function handleDirective (directive, value, element, context) {
     case 'style':
       style(value, element, context);
       break;
+    case 'model':
+      model(value, element, context);
+      break;
     default:
       if (directive === 'disabled' || directive === 'checked') {
         if (value) {
@@ -27,6 +31,19 @@ export function handleDirective (directive, value, element, context) {
         setAttr(element, directive, value);
       }
       break;
+  }
+}
+
+export function bindDirective (directive, value, element, context) {
+  switch (directive) {
+    case 'model':
+      attachEvent(element, 'input', function handleInput () {
+        const setter = {};
+        setter[value] = element.value;
+        context.setState(setter);
+      });
+      break;
+    default:
   }
 }
 

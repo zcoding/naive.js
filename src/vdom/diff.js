@@ -24,6 +24,9 @@ function diffProps (oldTree, newTree) {
     } else if (newTreeProps[p] !== oldTreeProps[p]) {
       hasPatch = true;
       setPropsPatches[p] = newTreeProps[p];
+    } else if (p === 'n-model') {
+      hasPatch = true;
+      setPropsPatches[p] = newTreeProps[p];
     }
   }
   // 检查新属性

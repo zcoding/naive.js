@@ -47,6 +47,8 @@ function isPlainObject(obj) {
   return obj != null && (typeof obj === 'undefined' ? 'undefined' : _typeof(obj)) === 'object' && !isArray(obj) && Object.prototype.toString.call(obj) === '[object Object]';
 }
 
+
+
  // asap async
 
 function getElement(selector) {
@@ -211,6 +213,230 @@ function style(value, element, context) {
   }
 }
 
+/**
+ * 双向链表实现的使用 LRU 算法的缓存
+ * 缓存最近最常用的项目，当缓存满时丢弃最近最少用的项目
+ *
+ * @param {Number} 缓存最大限制
+ * @constructor
+ */
+
+function Cache(limit) {
+  this.size = 0; // 缓存大小
+  this.limit = limit; // 缓存大小最大限制
+  this.head = this.tail = undefined; // 头尾指针
+  this._keymap = Object.create(null); // 缓存映射表
+}
+
+var p = Cache.prototype;
+
+/**
+ * 将 <key> <value> 键值对存储到缓存映射表
+ * 如果缓存满了，删除一个节点让出空间给新的缓存，并返回被删的节点
+ * 否则返回 undefined
+ *
+ * @param {String} 键
+ * @param {*} 值
+ * @return {Entry|undefined}
+ */
+
+p.put = function (key, value) {
+  var removed;
+
+  var entry = this.get(key, true); // 先查看是否已经有缓存，如果有，只需要更新它的 value 就可以了
+  if (!entry) {
+    if (this.size === this.limit) {
+      // 缓存满了
+      removed = this.shift();
+    }
+    entry = {
+      key: key
+    };
+    this._keymap[key] = entry;
+    if (this.tail) {
+      this.tail.newer = entry;
+      entry.older = this.tail;
+    } else {
+      this.head = entry;
+    }
+    this.tail = entry; // 将这个项目作为最新的插入缓存
+    this.size++;
+  }
+  entry.value = value;
+
+  return removed;
+};
+
+/**
+ * 从缓存中清除最近最少使用（放得最久的）项目
+ * 返回被清除的项目，如果缓存为空就返回 undefined
+ */
+
+p.shift = function () {
+  var entry = this.head;
+  if (entry) {
+    this.head = this.head.newer; // 头部的是最旧的，所以要从头部开始清除
+    this.head.older = undefined;
+    entry.newer = entry.older = undefined;
+    this._keymap[entry.key] = undefined;
+    this.size--;
+  }
+  return entry;
+};
+
+/**
+ * 获取并且注册最近使用的 <key>
+ * 返回 <key> 对应的值
+ * 如果缓存中找不到这个 <key> 就返回 undefined
+ *
+ * @param {String} 键
+ * @param {Boolean} 是否返回整个 entry ，如果为 false 则只返回 value
+ * @return {Entry|*} 返回 Entry 或者它的值，或者 undefined
+ */
+
+p.get = function (key, returnEntry) {
+  var entry = this._keymap[key];
+  if (entry === undefined) return; // 缓存不存在，直接返回 undefined
+  if (entry === this.tail) {
+    // 缓存是最新的，直接返回这个缓存项（或者它的值）
+    return returnEntry ? entry : entry.value;
+  }
+  // HEAD--------------TAIL
+  //   <.older   .newer>
+  //  <--- add direction --
+  //   A  B  C  <D>  E
+  if (entry.newer) {
+    // 如果缓存不是最新的
+    if (entry === this.head) {
+      // 如果缓存是最旧的
+      this.head = entry.newer; // 将比它新的作为最旧的
+    }
+    entry.newer.older = entry.older; // C <-- E. 将它的后一个作为前一个的最旧
+  }
+  if (entry.older) {
+    // 如果有比它更旧的
+    entry.older.newer = entry.newer; // C. --> E 将它的前一个作为后一个的最新
+  }
+  entry.newer = undefined; // D --x // 它本身没有更新的
+  entry.older = this.tail; // D. --> E
+  if (this.tail) {
+    this.tail.newer = entry; // E. <-- D
+  }
+  this.tail = entry; // 将自己作为最新的
+  return returnEntry ? entry : entry.value;
+};
+
+var pathCache = new Cache(1000);
+
+
+
+var restoreRE = /"(\d+)"/g;
+var saved = [];
+
+function restore(str, i) {
+  return saved[i];
+}
+
+/**
+ * 解析一个表达式
+ * @param {String} expression 表达式字符串
+ * @param {String} scope 作用域限制
+ * @return {Function} 一个函数，用来返回表达式的值
+ */
+
+
+
+
+/**
+ * parsePath 解析取值路径，返回真正的值，如果找不到，返回 undefined
+ *
+ * @param {Object} data
+ * @param {String} path
+ * @return {*} value
+ * @throw {Error} 不合法的路径
+ *
+ * @example
+ * parsePath('a.b.c') === ['a', 'b', 'c']
+ */
+function parsePath(path) {
+  var hit = pathCache.get(path);
+  if (hit) {
+    return hit;
+  }
+  // data.a.b.c 👍
+  // data.a["b"].c 👍
+  // data["a"]["b"]["c"] 👍
+  // data.a["b.c"] 👍
+  // data["a.b.c"] 👍
+  // data.a[b] 👎
+  // data.a[b.c] 👎
+  var parts = path.split(/\[|\]/g),
+      i = 0;
+  var props = [];
+  while (i < parts.length) {
+    var match1 = /^(\.)?[^\'\"\.\s]+(\.[^\'\"\.\s]+)*$/.test(parts[i]);
+    var match2 = /(^\s*\'.+\'\s*$)|(^\s*\".+\"\s*$)|(^\s*$)/.test(parts[i]);
+    if (!(match1 || match2)) {
+      throw new Error("不合法的路径: " + path);
+    }
+    if (match1) {
+      var _props = parts[i].split('.'),
+          j = 0;
+      while (j < _props.length) {
+        if (_props[j] === '') {
+          if (i !== 0) {
+            j++;
+            continue;
+          } else {
+            throw new Error("不合法的路径: " + path);
+          }
+        } else {
+          props.push(_props[j]);
+        }
+        j++;
+      }
+    } else {
+      // match2
+      if (!/^\s*$/.test(parts[i])) {
+        var _prop = parts[i].replace(/^\s*[\"\']|[\'\"]\s*$/g, '');
+        props.push(_prop);
+      }
+    }
+    i++;
+  }
+  pathCache.put(path, props);
+  return props;
+}
+
+function getObjectFromPath(data, path) {
+  var props = parsePath(path);
+  var result = props.length > 0 ? data : undefined;
+  for (var i = 0; i < props.length; ++i) {
+    result = result[props[i]];
+    if (!result) {
+      break;
+    }
+  }
+  return result;
+}
+
+function model(value, element, context) {
+  var currentValue = getObjectFromPath(context.state, value);
+  if (element.value !== currentValue) {
+    element.value = currentValue;
+  }
+}
+
+function attachEvent(el, eventName, handler) {
+  if (el.addEventListener) {
+    el.addEventListener(eventName, handler, false);
+  } else if (el.attachEvent) {
+    el.attachEvent(eventName, handler);
+  } else {
+    el['on' + eventName] = handler;
+  }
+}
+
 function handleDirective(directive, value, element, context) {
   switch (directive) {
     case 'show':
@@ -221,6 +447,9 @@ function handleDirective(directive, value, element, context) {
       break;
     case 'style':
       style(value, element, context);
+      break;
+    case 'model':
+      model(value, element, context);
       break;
     default:
       if (directive === 'disabled' || directive === 'checked') {
@@ -233,6 +462,19 @@ function handleDirective(directive, value, element, context) {
         setAttr(element, directive, value);
       }
       break;
+  }
+}
+
+function bindDirective(directive, value, element, context) {
+  switch (directive) {
+    case 'model':
+      attachEvent(element, 'input', function handleInput() {
+        var setter = {};
+        setter[value] = element.value;
+        context.setState(setter);
+      });
+      break;
+    default:
   }
 }
 
@@ -255,16 +497,6 @@ function handleDirectiveRemove(directive, value, element, context) {
     case 'class':
       removeClassAttr(value, element, context);
       break;
-  }
-}
-
-function attachEvent(el, eventName, handler) {
-  if (el.addEventListener) {
-    el.addEventListener(eventName, handler, false);
-  } else if (el.attachEvent) {
-    el.attachEvent(eventName, handler);
-  } else {
-    el['on' + eventName] = handler;
   }
 }
 
@@ -294,12 +526,14 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
+// 检查是否指令属性
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
   for (var p in props) {
     if (props.hasOwnProperty(p)) {
       if (/^n-/.test(p)) {
+        bindDirective(p.slice(2), props[p], element, context);
         handleDirective(p.slice(2), props[p], element, context);
       } else if (/^:/.test(p)) {
         handleDirective(p.slice(1), props[p], element, context);
@@ -778,6 +1012,7 @@ function patchProps(domNode, patch, context) {
   }
 }
 
+// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -799,6 +1034,9 @@ function diffProps(oldTree, newTree) {
         setPropsPatches[p] = newTreeProps[p];
       }
     } else if (newTreeProps[p] !== oldTreeProps[p]) {
+      hasPatch = true;
+      setPropsPatches[p] = newTreeProps[p];
+    } else if (p === 'n-model') {
       hasPatch = true;
       setPropsPatches[p] = newTreeProps[p];
     }
@@ -1040,6 +1278,7 @@ function Naive(options) {
       return nodes;
     }
   };
+  // this._obs_ = new Observer(this.state);
   this.vdomRender = function vdomRender() {
     var vdom = _vdomRender.call(this, function createVdom() {
       return h.apply(context, toArray$$1(arguments));
