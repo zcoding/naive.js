@@ -27,6 +27,16 @@ export default function Naive (options) {
   } else {
     this.state = {};
   }
+  this.props = {};
+  // 合并 state 和 options.props
+  if (options.props) {
+    for (let p in options.props) {
+      if (options.props.hasOwnProperty(p)) {
+        this.props[p.slice(1)] = options.props[p];
+      }
+    }
+  }
+  extend(this.state, this.props);
   const context = this;
   const _vdomRender = options.render || emptyRender;
   const _templateHelpers = {
@@ -56,20 +66,26 @@ export default function Naive (options) {
   this.$root = null;
   // components
   this.components = {};
+  this._components = {};
   const componentsOptions = options.components || {};
   for (let p in componentsOptions) {
     if (componentsOptions.hasOwnProperty(p)) {
       const componentDefine = componentsOptions[p] || {};
       componentDefine.name = componentDefine.name || p;
-      context.components[p] = createComponentCreator(this, componentDefine);
+      this.components[p] = createComponentCreator(this, componentDefine);
     }
   }
   this._init(options);
 }
 
 function createComponentCreator (context, componentDefine) {
-  return function createComponent() {
-    return new Naive(componentDefine);
+  return function createComponent(props, children, key) {
+    if (!context._components[key]) {
+      context._components[key] = new Naive(extend({props: props, key: key}, componentDefine));
+    } else {
+      updateProps(context._components[key], props);
+    }
+    return context._components[key];
   };
 }
 
@@ -88,7 +104,7 @@ prtt.setState = function setState (state) {
 
 // 更新视图
 prtt.update = function update () {
-  if (!this.mounted) { // 如果组件没有挂载到元素上，不需要更新视图
+  if (!this.$root) {
     return this;
   }
   const preVdom = this.vdom;
@@ -101,6 +117,25 @@ prtt.update = function update () {
   } else {
     warn('不需要更新视图');
   }
+  this._callHooks('updated');
+  // 先父组件后子组件
+  for (let c in this._components) {
+    if (this._components.hasOwnProperty(c)) {
+      this._components[c].update();
+    }
+  }
+  return this;
+};
+
+function updateProps (component, props) {
+  if (props) {
+    for (let p in props) {
+      if (props.hasOwnProperty(p)) {
+        component.props[p.slice(1)] = props[p];
+      }
+    }
+  }
+  extend(component.state, component.props);
 };
 
 prtt._init = function _init (options) {

@@ -283,7 +283,7 @@ function VNode(tagName, props, children, key) {
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
     } else {
-      warn('children 类型不支持');
+      // warn('children 类型不支持');
     }
   }
   this.children = childNodes;
@@ -294,7 +294,6 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
-// 检查是否指令属性
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
@@ -893,6 +892,7 @@ function diffWalk(pVdom, nVdom, currentIndex, patches) {
       currentPatches.push({ type: PATCH.TEXT, data: nVdom.data });
     }
   } else if (isVComponent(pVdom) || isVComponent(nVdom)) {// * VS Component | Component VS *
+    // 忽略，不在这里处理
   } else {
     // 不同类型的节点
     currentPatches.push({
@@ -929,7 +929,7 @@ function h(tagName, props, children, key) {
     return tagName;
   } else if (isPlainObject(tagName)) {
     if (components.hasOwnProperty(tagName.tagName)) {
-      return components[tagName.tagName]();
+      return components[tagName.tagName](tagName.props, tagName.children, tagName.key);
     } else {
       return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
     }
@@ -943,7 +943,7 @@ function h(tagName, props, children, key) {
     return new VText(tagName);
   } else {
     if (components.hasOwnProperty(tagName)) {
-      return components[tagName]();
+      return components[tagName](props, children, key);
     } else {
       return new VNode(tagName, props, children, key);
     }
@@ -1014,6 +1014,16 @@ function Naive(options) {
   } else {
     this.state = {};
   }
+  this.props = {};
+  // 合并 state 和 options.props
+  if (options.props) {
+    for (var p in options.props) {
+      if (options.props.hasOwnProperty(p)) {
+        this.props[p.slice(1)] = options.props[p];
+      }
+    }
+  }
+  extend(this.state, this.props);
   var context = this;
   var _vdomRender = options.render || emptyRender;
   var _templateHelpers = {
@@ -1039,20 +1049,26 @@ function Naive(options) {
   this.$root = null;
   // components
   this.components = {};
+  this._components = {};
   var componentsOptions = options.components || {};
-  for (var p in componentsOptions) {
-    if (componentsOptions.hasOwnProperty(p)) {
-      var componentDefine = componentsOptions[p] || {};
-      componentDefine.name = componentDefine.name || p;
-      context.components[p] = createComponentCreator(this, componentDefine);
+  for (var _p in componentsOptions) {
+    if (componentsOptions.hasOwnProperty(_p)) {
+      var componentDefine = componentsOptions[_p] || {};
+      componentDefine.name = componentDefine.name || _p;
+      this.components[_p] = createComponentCreator(this, componentDefine);
     }
   }
   this._init(options);
 }
 
 function createComponentCreator(context, componentDefine) {
-  return function createComponent() {
-    return new Naive(componentDefine);
+  return function createComponent(props, children, key) {
+    if (!context._components[key]) {
+      context._components[key] = new Naive(extend({ props: props, key: key }, componentDefine));
+    } else {
+      updateProps(context._components[key], props);
+    }
+    return context._components[key];
   };
 }
 
@@ -1071,8 +1087,7 @@ prtt.setState = function setState(state) {
 
 // 更新视图
 prtt.update = function update() {
-  if (!this.mounted) {
-    // 如果组件没有挂载到元素上，不需要更新视图
+  if (!this.$root) {
     return this;
   }
   var preVdom = this.vdom;
@@ -1085,7 +1100,26 @@ prtt.update = function update() {
   } else {
     warn('不需要更新视图');
   }
+  this._callHooks('updated');
+  // 先父组件后子组件
+  for (var c in this._components) {
+    if (this._components.hasOwnProperty(c)) {
+      this._components[c].update();
+    }
+  }
+  return this;
 };
+
+function updateProps(component, props) {
+  if (props) {
+    for (var p in props) {
+      if (props.hasOwnProperty(p)) {
+        component.props[p.slice(1)] = props[p];
+      }
+    }
+  }
+  extend(component.state, component.props);
+}
 
 prtt._init = function _init(options) {
   var methods = options.methods || {};

@@ -20,7 +20,7 @@ export default function VNode (tagName, props, children, key) {
     } else if (isArray(child)) {
       childNodes = childNodes.concat(child);
     } else {
-      warn('children 类型不支持');
+      // warn('children 类型不支持');
     }
   }
   this.children = childNodes;

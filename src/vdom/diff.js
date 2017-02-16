@@ -108,6 +108,7 @@ function diffWalk (pVdom, nVdom, currentIndex, patches) {
       currentPatches.push({type: PATCH.TEXT, data: nVdom.data});
     }
   } else if (isVComponent(pVdom) || isVComponent(nVdom)) { // * VS Component | Component VS *
+    // 忽略，不在这里处理
   } else { // 不同类型的节点
     currentPatches.push({
       type: PATCH.REPLACE,
