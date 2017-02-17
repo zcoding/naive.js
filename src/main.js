@@ -5,7 +5,12 @@ import h from './vdom/h';
 import { warn, extend, isFunction, isPlainObject, toArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
-// import Observer from './observer';
+
+let componentId = 1;
+
+function uuid() {
+  return '$naive-component-' + componentId++ + new Date().getTime();
+}
 
 function emptyRender () {
   return null;
@@ -14,6 +19,7 @@ function emptyRender () {
 export default function Naive (options) {
   options = options || {};
   this.name = options.name || '';
+  this.key = options.key || uuid();
   this._hooks = {};
   if ('state' in options) {
     if (!isFunction(options.state)) {
@@ -54,7 +60,6 @@ export default function Naive (options) {
       return nodes;
     }
   };
-  // this._obs_ = new Observer(this.state);
   this.vdomRender = function vdomRender () {
     const vdom = _vdomRender.call(
       this,

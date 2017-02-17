@@ -2,6 +2,7 @@ import { setAttr, replaceNode, removeNode, removeAttr } from '../dom';
 import { handleDirective, handleDirectiveRemove } from '../directive';
 import { attachEvent, detachEvent } from '../event';
 import { domIndex } from './dom-index';
+import { bindEvent } from './vnode';
 
 export const PATCH = {
   REPLACE: 0, // 替换节点
@@ -113,10 +114,10 @@ function patchProps (domNode, patch, context) {
         } else if (/^:/.test(p)) {
           handleDirective(p.slice(1), setProps[p], domNode, context);
         } else {
-          // 事件指令
-          // remove old event listener
-          // detachEvent(domNode, p.slice(1), patch.props[p]);
-          // add new event listener
+          const eventName = p.slice(1);
+          const exp = setProps[p];
+          // detachEvent(domNode, eventName); // @TODO 需要解除绑定原有的事件?
+          bindEvent(eventName, exp, domNode, context);
         }
       } else { // 普通属性
         if (typeof patch.props[p] === 'undefined') {

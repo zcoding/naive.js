@@ -498,6 +498,11 @@ function handleDirectiveRemove(directive, value, element, context) {
   }
 }
 
+function NaiveException(message) {
+  this.name = 'NaiveException';
+  this.message = message;
+}
+
 function VNode(tagName, props, children, key) {
   this.tagName = tagName;
   this.props = props || {};
@@ -525,9 +530,160 @@ function VNode(tagName, props, children, key) {
 }
 
 // 检查是否指令属性
+function matchExpression(exp) {
+  return exp.match(/(.*)\((.*)\)/);
+}
+
+function parseArgumentList(exp) {
+  var i = 0;
+  var needSeparate = false;
+  var inSingle = false;
+  var single = [];
+  var inDouble = false;
+  var double = [];
+  var inWord = false;
+  var word = [];
+  var args = [];
+  while (i < exp.length) {
+    var t = exp[i];
+    if (t === '\'') {
+      if (inSingle) {
+        args.push({
+          type: 'string',
+          value: single.join('')
+        });
+        single.splice(0);
+        inSingle = false;
+        needSeparate = true;
+      } else if (inDouble) {
+        double.push(t);
+      } else if (inWord) {
+        throw new NaiveException('参数错误');
+      } else if (needSeparate) {
+        throw new NaiveException('参数错误');
+      } else {
+        inSingle = true;
+      }
+    } else if (t === '"') {
+      if (inDouble) {
+        args.push({
+          type: 'string',
+          value: double.join('')
+        });
+        double.splice(0);
+        inDouble = false;
+        needSeparate = true;
+      } else if (inSingle) {
+        double.push(t);
+      } else if (inWord) {
+        throw new NaiveException('参数错误');
+      } else if (needSeparate) {
+        throw new NaiveException('参数错误');
+      } else {
+        inDouble = true;
+      }
+    } else if (t === ',') {
+      if (inSingle) {
+        single.push(t);
+      } else if (inDouble) {
+        double.push(t);
+      } else if (inWord) {
+        args.push({
+          type: 'exp',
+          value: word.join('')
+        });
+        word.splice(0);
+        inWord = false;
+        needSeparate = false;
+      } else if (!needSeparate) {
+        throw new NaiveException('参数错误');
+      } else {
+        needSeparate = false;
+      }
+    } else if (t === ' ') {
+      if (inSingle) {
+        single.push(t);
+      } else if (inDouble) {
+        double.push(t);
+      } else if (inWord) {
+        throw new NaiveException('参数错误');
+      }
+    } else {
+      if (inSingle) {
+        single.push(t);
+      } else if (inDouble) {
+        double.push(t);
+      } else if (inWord) {
+        word.push(t);
+      } else {
+        if (needSeparate) {
+          throw new NaiveException('参数错误');
+        } else {
+          word.push(t);
+          inWord = true;
+        }
+      }
+    }
+    ++i;
+  }
+  if (inSingle || inDouble) {
+    throw new NaiveException('参数错误');
+  } else if (inWord) {
+    args.push({
+      type: 'exp',
+      value: word.join('')
+    });
+  }
+  return args;
+}
+
+function parseExpression$$1(exp, data) {
+  if (/^[+-]?\d+\.?\d*?$/.test(exp)) {
+    return Number(exp);
+  } else {
+    return getObjectFromPath(data, exp);
+  }
+}
+
+function bindEvent(eventName, exp, element, context) {
+  var handlerFunc = void 0;
+  if (isFunction(exp)) {
+    handlerFunc = exp;
+  } else {
+    (function () {
+      var matches = matchExpression(exp);
+      if (matches) {
+        (function () {
+          var methodName = matches[1];
+          handlerFunc = function handlerFunc(evt) {
+            var args = parseArgumentList(matches[2]);
+            var _args = [];
+            for (var i = 0; i < args.length; ++i) {
+              if (args[i].type === 'string') {
+                _args.push(args[i].value);
+              } else if (args[i].value === '$event') {
+                _args.push(evt);
+              } else {
+                _args.push(parseExpression$$1(args[i].value, this.state));
+              }
+            }
+            this[methodName].apply(this, _args);
+          };
+        })();
+      } else {
+        handlerFunc = context[exp];
+      }
+    })();
+  }
+  attachEvent(element, eventName, function handler(evt) {
+    return handlerFunc.call(context, evt);
+  });
+}
+
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
+  var nodeContext = this;
   for (var p in props) {
     if (props.hasOwnProperty(p)) {
       if (/^n-/.test(p)) {
@@ -536,13 +692,9 @@ VNode.prototype.render = function renderVNodeToElement(context) {
       } else if (/^:/.test(p)) {
         handleDirective(p.slice(1), props[p], element, context);
       } else if (/^@/.test(p)) {
-        (function () {
-          var eventName = p.slice(1);
-          var handlerFunc = isFunction(props[p]) ? props[p] : context[props[p]];
-          attachEvent(element, eventName, function handler(evt) {
-            handlerFunc.call(context, evt);
-          });
-        })();
+        var eventName = p.slice(1);
+        var exp = props[p];
+        bindEvent(eventName, exp, element, context);
       } else {
         setAttr(element, p, props[p]);
       }
@@ -969,7 +1121,6 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
-// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -983,10 +1134,10 @@ function patchProps(domNode, patch, context) {
         } else if (/^:/.test(p)) {
           handleDirective(p.slice(1), setProps[p], domNode, context);
         } else {
-          // 事件指令
-          // remove old event listener
-          // detachEvent(domNode, p.slice(1), patch.props[p]);
-          // add new event listener
+          var eventName = p.slice(1);
+          var exp = setProps[p];
+          // detachEvent(domNode, eventName); // @TODO 需要解除绑定原有的事件?
+          bindEvent(eventName, exp, domNode, context);
         }
       } else {
         // 普通属性
@@ -1010,7 +1161,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1224,9 +1374,10 @@ function callHooks(hookName) {
   }
 }
 
-function NaiveException(message) {
-  this.name = 'NaiveException';
-  this.message = message;
+var componentId = 1;
+
+function uuid() {
+  return '$naive-component-' + componentId++ + new Date().getTime();
 }
 
 function emptyRender() {
@@ -1236,6 +1387,7 @@ function emptyRender() {
 function Naive(options) {
   options = options || {};
   this.name = options.name || '';
+  this.key = options.key || uuid();
   this._hooks = {};
   if ('state' in options) {
     if (!isFunction(options.state)) {
@@ -1276,7 +1428,6 @@ function Naive(options) {
       return nodes;
     }
   };
-  // this._obs_ = new Observer(this.state);
   this.vdomRender = function vdomRender() {
     var vdom = _vdomRender.call(this, function createVdom() {
       return h.apply(context, toArray$$1(arguments));
