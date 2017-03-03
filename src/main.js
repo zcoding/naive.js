@@ -1,6 +1,6 @@
 import { getElement, appendChild, replaceNode } from './dom';
 import { diff } from './vdom/diff';
-import { patch } from './vdom/patch';
+import { applyPatch } from './vdom/patch';
 import h from './vdom/h';
 import { warn, extend, isFunction, isPlainObject, toArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
@@ -35,19 +35,26 @@ export default function Naive (options) {
     this.state = {};
   }
   this.props = {};
+  const combineProps = {};
   // 合并 state 和 options.props
   if (options.props) {
     for (let p in options.props) {
       if (options.props.hasOwnProperty(p)) {
-        this.props[p.slice(1)] = options.props[p];
+        this.props[p] = options.props[p];
+        if (/^:/.test(p)) {
+          combineProps[p.slice(1)] = options.props[p];
+        } else {
+          combineProps[p] = String(options.props[p]);
+        }
       }
     }
   }
-  extend(this.state, this.props);
+  extend(this.state, combineProps);
   const context = this;
   const _vdomRender = options.render || emptyRender;
   const _templateHelpers = {
     "if": function (condition, options) {
+      condition = !!condition;
       return condition ? h(options) : condition;
     },
     "each": function (list, createItem) {
@@ -79,19 +86,23 @@ export default function Naive (options) {
     if (componentsOptions.hasOwnProperty(p)) {
       const componentDefine = componentsOptions[p] || {};
       componentDefine.name = componentDefine.name || p;
+      componentDefine.parent = this;
       this.components[p] = createComponentCreator(this, componentDefine);
     }
   }
+  this.parent = options.parent || null;
   this._init(options);
 }
 
 function createComponentCreator (context, componentDefine) {
   return function createComponent(props, children, key) {
-    if (!context._components[key]) {
-      context._components[key] = new Naive(extend({props: props, key: key}, componentDefine));
-    } else {
-      updateProps(context._components[key], props);
-    }
+    // if (!key || !context._components[key]) {
+      const newChild = new Naive(extend({props: props, key: key}, componentDefine));
+      context._components[newChild.key] = newChild;
+      key = newChild.key;
+    // } else {
+    //   updateProps(context._components[key], props);
+    // }
     return context._components[key];
   };
 }
@@ -120,29 +131,29 @@ prtt.update = function update () {
   const patches = diff(preVdom, this.vdom);
   // console.log(patches);
   if (patches) {
-    patch(this, this.$root, patches);
+    applyPatch(this, this.$root, patches);
   } else {
     warn('不需要更新视图');
   }
   this._callHooks('updated');
-  // 先父组件后子组件
-  for (let c in this._components) {
-    if (this._components.hasOwnProperty(c)) {
-      this._components[c].update();
-    }
-  }
   return this;
 };
 
 function updateProps (component, props) {
+  const combineProps = {};
   if (props) {
     for (let p in props) {
       if (props.hasOwnProperty(p)) {
-        component.props[p.slice(1)] = props[p];
+        component.props[p] = props[p];
+        if (/^:/.test(p)) {
+          combineProps[p.slice(1)] = props[p];
+        } else {
+          combineProps[p] = String(props[p]);
+        }
       }
     }
   }
-  extend(component.state, component.props);
+  extend(component.state, combineProps);
 };
 
 prtt._init = function _init (options) {
@@ -174,6 +185,15 @@ prtt.mount = function mount (selector) {
   replaceNode(this.render(), mountPoint);
   this.mounted = true;
   this._callHooks('mounted');
+  // child mounted
+  // for (let c in this._components) {
+  //   if (this._components.hasOwnProperty(c)) {
+  //     const _component = this._components[c]
+  //     if (!_component.mounted) {
+  //       _component._callHooks('mounted');
+  //     }
+  //   }
+  // }
 };
 
 prtt._callHooks = callHooks;

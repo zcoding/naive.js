@@ -1028,7 +1028,8 @@ var PATCH = {
   REMOVE: 2, // 移除
   REORDER: 3, // 重排
   PROPS: 4, // 修改属性
-  TEXT: 5 // 替换文本
+  TEXT: 5, // 替换文本
+  COMPONENT: 6 // 组件 patch
 };
 
 function ascending(a, b) {
@@ -1036,34 +1037,43 @@ function ascending(a, b) {
 }
 
 // 根据补丁更新 DOM 节点
-function applyPatches(context, domNode, patches) {
+function doApplyPatches(context, domNode, patches) {
   for (var i = 0; i < patches.length; ++i) {
-    var _patch = patches[i];
-    switch (_patch.type) {
+    var patch = patches[i];
+    switch (patch.type) {
       case PATCH.REPLACE:
         // 替换元素节点
-        replaceNode(_patch.node.render(context), domNode);
+        replaceNode(patch.node.render(context), domNode);
         break;
       case PATCH.PROPS:
         // 属性修改
-        patchProps(domNode, _patch, context);
+        patchProps(domNode, patch, context);
         break;
       case PATCH.TEXT:
         // 替换文本内容
-        domNode.data = _patch.data;
+        domNode.data = patch.data;
         break;
       case PATCH.REORDER:
         // 子节点重新排序
-        patchReorder(context, domNode, _patch.moves);
+        patchReorder(context, domNode, patch.moves);
         break;
       case PATCH.INSERT:
         // append
         if (domNode) {
-          domNode.appendChild(_patch.node.render(context));
+          domNode.appendChild(patch.node.render(context));
         }
         break;
       case PATCH.REMOVE:
         removeNode(domNode);
+        break;
+      case PATCH.COMPONENT:
+        // replace root
+        // @TODO 这里的 context 应该用组件的 context
+        // @TODO 这里应该触发 mounted 和 updated
+        applyPatch(context, domNode, patch.componentPatch);
+        if (patch.context) {
+          patch.context._callHooks('updated');
+        }
         break;
       default:
       // warn
@@ -1071,7 +1081,7 @@ function applyPatches(context, domNode, patches) {
   }
 }
 
-function patch(context, domNode, patch) {
+function applyPatch(context, domNode, patch) {
   var patches = patch.patches;
   // 先找需要 patch 的 dom 节点
   var indices = [];
@@ -1088,7 +1098,7 @@ function patch(context, domNode, patch) {
   var domMapping = domIndex(domNode, pVdom, indices);
   for (var i = 0; i < indices.length; ++i) {
     var idx = indices[i];
-    applyPatches(context, domMapping[idx], patches[idx]);
+    doApplyPatches(context, domMapping[idx], patches[idx]);
   }
 }
 
@@ -1242,9 +1252,30 @@ function diffChildren(pChildren, nChildren, parentIndex, patches, parentPatches)
   }
 }
 
+function diffComponent(pVdom, nVdom, currentPatches) {
+  // 如果是 component 则对 component 的 vdom 进行 diff
+  // debugger
+  // 如果 key 相同，说明 component 需要 update
+  // 如果 key 不同，说明 component 需要 mounted 和 unmounted
+  // if (pVdom.key === nVdom.key) {
+  //   console.log('同一个组件')
+  // } else {
+  //   console.log('不同的组件')
+  // }
+  var componentPatch = diff(isVComponent(pVdom) ? pVdom.vdom : pVdom, isVComponent(nVdom) ? nVdom.vdom : nVdom);
+  currentPatches.push({
+    type: PATCH.COMPONENT,
+    context: isVComponent(nVdom) ? nVdom : null,
+    componentPatch: componentPatch
+  });
+}
+
 function diffWalk(pVdom, nVdom, currentIndex, patches) {
   var currentPatches = []; // 当前层级的 patch
-  if (nVdom === null) {
+  if (isVComponent(pVdom) || isVComponent(nVdom)) {
+    // Component VS Component
+    diffComponent(pVdom, nVdom, currentPatches);
+  } else if (nVdom === null) {
     // * VS null
     currentPatches.push({
       type: PATCH.REMOVE,
@@ -1277,13 +1308,12 @@ function diffWalk(pVdom, nVdom, currentIndex, patches) {
       // 内容不一样的时候才替换（只替换内容即可）
       currentPatches.push({ type: PATCH.TEXT, data: nVdom.data });
     }
-  } else if (isVComponent(pVdom) || isVComponent(nVdom)) {// * VS Component | Component VS *
-    // 忽略，不在这里处理
   } else {
     // 不同类型的节点
     currentPatches.push({
       type: PATCH.REPLACE,
-      node: nVdom
+      node: nVdom,
+      preNode: pVdom
     });
   }
   if (currentPatches.length > 0) {
@@ -1292,8 +1322,8 @@ function diffWalk(pVdom, nVdom, currentIndex, patches) {
 }
 
 function diff(pVdom, nVdom) {
-  var patch$$1 = {};
-  patch$$1.pVdom = pVdom;
+  var patch = {};
+  patch.pVdom = pVdom;
   var patches = {};
   if (isArray(pVdom)) {
     var currentPatches = [];
@@ -1304,8 +1334,8 @@ function diff(pVdom, nVdom) {
   } else {
     diffWalk(pVdom, nVdom, 0, patches);
   }
-  patch$$1.patches = patches;
-  return patch$$1;
+  patch.patches = patches;
+  return patch;
 }
 
 function h(tagName, props, children, key) {
@@ -1403,19 +1433,26 @@ function Naive(options) {
     this.state = {};
   }
   this.props = {};
+  var combineProps = {};
   // 合并 state 和 options.props
   if (options.props) {
     for (var p in options.props) {
       if (options.props.hasOwnProperty(p)) {
-        this.props[p.slice(1)] = options.props[p];
+        this.props[p] = options.props[p];
+        if (/^:/.test(p)) {
+          combineProps[p.slice(1)] = options.props[p];
+        } else {
+          combineProps[p] = String(options.props[p]);
+        }
       }
     }
   }
-  extend(this.state, this.props);
+  extend(this.state, combineProps);
   var context = this;
   var _vdomRender = options.render || emptyRender;
   var _templateHelpers = {
     "if": function _if(condition, options) {
+      condition = !!condition;
       return condition ? h(options) : condition;
     },
     "each": function each(list, createItem) {
@@ -1443,19 +1480,23 @@ function Naive(options) {
     if (componentsOptions.hasOwnProperty(_p)) {
       var componentDefine = componentsOptions[_p] || {};
       componentDefine.name = componentDefine.name || _p;
+      componentDefine.parent = this;
       this.components[_p] = createComponentCreator(this, componentDefine);
     }
   }
+  this.parent = options.parent || null;
   this._init(options);
 }
 
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
-    if (!context._components[key]) {
-      context._components[key] = new Naive(extend({ props: props, key: key }, componentDefine));
-    } else {
-      updateProps(context._components[key], props);
-    }
+    // if (!key || !context._components[key]) {
+    var newChild = new Naive(extend({ props: props, key: key }, componentDefine));
+    context._components[newChild.key] = newChild;
+    key = newChild.key;
+    // } else {
+    //   updateProps(context._components[key], props);
+    // }
     return context._components[key];
   };
 }
@@ -1484,30 +1525,15 @@ prtt.update = function update() {
   var patches = diff(preVdom, this.vdom);
   // console.log(patches);
   if (patches) {
-    patch(this, this.$root, patches);
+    applyPatch(this, this.$root, patches);
   } else {
     warn('不需要更新视图');
   }
   this._callHooks('updated');
-  // 先父组件后子组件
-  for (var c in this._components) {
-    if (this._components.hasOwnProperty(c)) {
-      this._components[c].update();
-    }
-  }
   return this;
 };
 
-function updateProps(component, props) {
-  if (props) {
-    for (var p in props) {
-      if (props.hasOwnProperty(p)) {
-        component.props[p.slice(1)] = props[p];
-      }
-    }
-  }
-  extend(component.state, component.props);
-}
+
 
 prtt._init = function _init(options) {
   var methods = options.methods || {};
@@ -1538,6 +1564,15 @@ prtt.mount = function mount(selector) {
   replaceNode(this.render(), mountPoint);
   this.mounted = true;
   this._callHooks('mounted');
+  // child mounted
+  // for (let c in this._components) {
+  //   if (this._components.hasOwnProperty(c)) {
+  //     const _component = this._components[c]
+  //     if (!_component.mounted) {
+  //       _component._callHooks('mounted');
+  //     }
+  //   }
+  // }
 };
 
 prtt._callHooks = callHooks;

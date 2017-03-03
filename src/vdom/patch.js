@@ -3,6 +3,7 @@ import { handleDirective, handleDirectiveRemove } from '../directive';
 import { attachEvent, detachEvent } from '../event';
 import { domIndex } from './dom-index';
 import { bindEvent } from './vnode';
+import { isVComponent } from './utils';
 
 export const PATCH = {
   REPLACE: 0, // 替换节点
@@ -10,7 +11,8 @@ export const PATCH = {
   REMOVE: 2, // 移除
   REORDER: 3, // 重排
   PROPS: 4, // 修改属性
-  TEXT: 5 // 替换文本
+  TEXT: 5, // 替换文本
+  COMPONENT: 6 // 组件 patch
 };
 
 function ascending(a, b) {
@@ -18,7 +20,7 @@ function ascending(a, b) {
 }
 
 // 根据补丁更新 DOM 节点
-function applyPatches (context, domNode, patches) {
+function doApplyPatches (context, domNode, patches) {
   for (let i = 0; i < patches.length; ++i) {
     const patch = patches[i];
     switch (patch.type) {
@@ -42,13 +44,22 @@ function applyPatches (context, domNode, patches) {
       case PATCH.REMOVE:
         removeNode(domNode);
         break;
+      case PATCH.COMPONENT:
+        // replace root
+        // @TODO 这里的 context 应该用组件的 context
+        // @TODO 这里应该触发 mounted 和 updated
+        applyPatch(context, domNode, patch.componentPatch);
+        if (patch.context) {
+          patch.context._callHooks('updated');
+        }
+        break;
       default:
         // warn
     }
   }
 }
 
-export function patch (context, domNode, patch) {
+export function applyPatch (context, domNode, patch) {
   const patches = patch.patches;
   // 先找需要 patch 的 dom 节点
   const indices = [];
@@ -65,7 +76,7 @@ export function patch (context, domNode, patch) {
   const domMapping = domIndex(domNode, pVdom, indices);
   for (let i = 0; i < indices.length; ++i) {
     const idx = indices[i];
-    applyPatches(context, domMapping[idx], patches[idx]);
+    doApplyPatches(context, domMapping[idx], patches[idx]);
   }
 }
 
