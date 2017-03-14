@@ -211,7 +211,11 @@ VNode.prototype.render = function renderVNodeToElement(context) {
     }
   }
   for (let i = 0; i < this.children.length; ++i) {
-    appendChild(this.children[i].render(context), element);
+    const child = this.children[i];
+    appendChild(child.render(context), element);
+    if (isVComponent(child)) {
+      child._callHooks('mounted');
+    }
   }
   return element;
 };

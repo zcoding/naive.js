@@ -36,21 +36,42 @@ function doApplyPatches (context, domNode, patches) {
       case PATCH.REORDER: // 子节点重新排序
         patchReorder(context, domNode, patch.moves);
         break;
-      case PATCH.INSERT: // append
-        if (domNode) {
-          domNode.appendChild(patch.node.render(context));
+      case PATCH.INSERT:
+        if (isVComponent(patch.node)) { // 插入组件
+          // console.log('插入组件')
+          const childComponent = patch.node;
+          if (childComponent.$root) {
+            // 如果组件已经有 $root 就 setState -> update
+            childComponent.update();
+            domNode.appendChild(childComponent.$root)
+          } else {
+            // 否则直接 render
+            domNode.appendChild(childComponent.render(context))
+          }
+          childComponent._callHooks('mounted');
+        } else { // 插入节点
+          if (domNode) {
+            domNode.appendChild(patch.node.render(context));
+          } else {
+          }
         }
         break;
       case PATCH.REMOVE:
-        removeNode(domNode);
+        if (isVComponent(patch.node)) { // 移除组件
+          // console.log('移除组件')
+          const childComponent = patch.node;
+          childComponent.unmount();
+        } else { // 移除节点
+          removeNode(domNode);
+        }
         break;
-      case PATCH.COMPONENT:
-        // replace root
-        // @TODO 这里的 context 应该用组件的 context
-        // @TODO 这里应该触发 mounted 和 updated
-        applyPatch(context, domNode, patch.componentPatch);
-        if (patch.context) {
-          patch.context._callHooks('updated');
+      case PATCH.COMPONENT: // 可能是同一组件或不同组件，但肯定都是组件
+        if (patch.pVdom.key === patch.nVdom.key) {
+          patch.pVdom.update();
+        } else {
+          patch.nVdom.update();
+          patch.nVdom.mount(patch.pVdom.$root);
+          patch.pVdom.unmount();
         }
         break;
       default:
@@ -70,9 +91,6 @@ export function applyPatch (context, domNode, patch) {
   }
   indices.sort(ascending);
   let pVdom = patch.pVdom;
-  if (domNode._isFragment) {
-    pVdom = { children: patch.pVdom };
-  }
   const domMapping = domIndex(domNode, pVdom, indices);
   for (let i = 0; i < indices.length; ++i) {
     const idx = indices[i];

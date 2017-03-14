@@ -37,7 +37,7 @@ export function inDoc(node) {
 }
 
 export function removeNode(node) {
-  const parentNode = node.parentNode;
+  const parentNode = node ? node.parentNode : null;
   if (parentNode) {
     parentNode.removeChild(node);
   }

@@ -15,7 +15,7 @@ var proto = Observer.prototype;
 
 proto.sub = function(keyPath, callback) {
   keyPath = normalizePath(keyPath);
-  var subs = this.subs[keyPath];
+  const subs = this.subs[keyPath];
   (subs ? subs : (this.subs[keyPath] = [])).push(callback);
 };
 

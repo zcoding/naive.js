@@ -28,13 +28,18 @@ function isUndefined(obj) {
 
 
 
-function extend(obj, props) {
-  if (props) {
-    for (var i in props) {
-      obj[i] = props[i];
+function extend(dest) {
+  if ((typeof dest === 'undefined' ? 'undefined' : _typeof(dest)) !== 'object' || !dest) {
+    return dest;
+  }
+  var sources = Array.prototype.slice.call(arguments, 1);
+  while (sources.length) {
+    var current = sources.shift();
+    for (var p in current) {
+      dest[p] = current[p];
     }
   }
-  return obj;
+  return dest;
 }
 
 
@@ -76,7 +81,7 @@ function query(selector, context) {
 
 
 function removeNode(node) {
-  var parentNode = node.parentNode;
+  var parentNode = node ? node.parentNode : null;
   if (parentNode) {
     parentNode.removeChild(node);
   }
@@ -422,8 +427,18 @@ function getObjectFromPath(data, path) {
 
 function model(value, element, context) {
   var currentValue = getObjectFromPath(context.state, value);
-  if (element.value !== currentValue) {
-    element.value = currentValue;
+  if (element.tagName === 'INPUT') {
+    if (element.type === 'radio' || element.type === 'checkbox') {
+      element.checked = currentValue === element.value;
+    } else {
+      if (element.value !== currentValue) {
+        element.value = currentValue;
+      }
+    }
+  } else if (element.tagName === 'SELECT') {
+    if (element.value !== currentValue) {
+      element.value = currentValue;
+    }
   }
 }
 
@@ -432,8 +447,6 @@ function attachEvent(el, eventName, handler) {
     el.addEventListener(eventName, handler, false);
   } else if (el.attachEvent) {
     el.attachEvent(eventName, handler);
-  } else {
-    el['on' + eventName] = handler;
   }
 }
 
@@ -703,7 +716,11 @@ VNode.prototype.render = function renderVNodeToElement(context) {
     }
   }
   for (var i = 0; i < this.children.length; ++i) {
-    appendChild(this.children[i].render(context), element);
+    var child = this.children[i];
+    appendChild(child.render(context), element);
+    if (isVComponent(child)) {
+      child._callHooks('mounted');
+    }
   }
   return element;
 };
@@ -1060,21 +1077,45 @@ function doApplyPatches(context, domNode, patches) {
         patchReorder(context, domNode, patch.moves);
         break;
       case PATCH.INSERT:
-        // append
-        if (domNode) {
-          domNode.appendChild(patch.node.render(context));
+        if (isVComponent(patch.node)) {
+          // 插入组件
+          // console.log('插入组件')
+          var childComponent = patch.node;
+          if (childComponent.$root) {
+            // 如果组件已经有 $root 就 setState -> update
+            childComponent.update();
+            domNode.appendChild(childComponent.$root);
+          } else {
+            // 否则直接 render
+            domNode.appendChild(childComponent.render(context));
+          }
+          childComponent._callHooks('mounted');
+        } else {
+          // 插入节点
+          if (domNode) {
+            domNode.appendChild(patch.node.render(context));
+          } else {}
         }
         break;
       case PATCH.REMOVE:
-        removeNode(domNode);
+        if (isVComponent(patch.node)) {
+          // 移除组件
+          // console.log('移除组件')
+          var _childComponent = patch.node;
+          _childComponent.unmount();
+        } else {
+          // 移除节点
+          removeNode(domNode);
+        }
         break;
       case PATCH.COMPONENT:
-        // replace root
-        // @TODO 这里的 context 应该用组件的 context
-        // @TODO 这里应该触发 mounted 和 updated
-        applyPatch(context, domNode, patch.componentPatch);
-        if (patch.context) {
-          patch.context._callHooks('updated');
+        // 可能是同一组件或不同组件，但肯定都是组件
+        if (patch.pVdom.key === patch.nVdom.key) {
+          patch.pVdom.update();
+        } else {
+          patch.nVdom.update();
+          patch.nVdom.mount(patch.pVdom.$root);
+          patch.pVdom.unmount();
         }
         break;
       default:
@@ -1094,9 +1135,6 @@ function applyPatch(context, domNode, patch) {
   }
   indices.sort(ascending);
   var pVdom = patch.pVdom;
-  if (domNode._isFragment) {
-    pVdom = { children: patch.pVdom };
-  }
   var domMapping = domIndex(domNode, pVdom, indices);
   for (var i = 0; i < indices.length; ++i) {
     var idx = indices[i];
@@ -1133,6 +1171,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1254,35 +1293,22 @@ function diffChildren(pChildren, nChildren, parentIndex, patches, parentPatches)
   }
 }
 
-function diffComponent(pVdom, nVdom, currentPatches) {
-  // 如果是 component 则对 component 的 vdom 进行 diff
-  // debugger
-  // 如果 key 相同，说明 component 需要 update
-  // 如果 key 不同，说明 component 需要 mounted 和 unmounted
-  // if (pVdom.key === nVdom.key) {
-  //   console.log('同一个组件')
-  // } else {
-  //   console.log('不同的组件')
-  // }
-  var componentPatch = diff(isVComponent(pVdom) ? pVdom.vdom : pVdom, isVComponent(nVdom) ? nVdom.vdom : nVdom);
-  currentPatches.push({
-    type: PATCH.COMPONENT,
-    context: isVComponent(nVdom) ? nVdom : null,
-    componentPatch: componentPatch
-  });
-}
-
 function diffWalk(pVdom, nVdom, currentIndex, patches) {
   var currentPatches = []; // 当前层级的 patch
-  if (isVComponent(pVdom) || isVComponent(nVdom)) {
-    // Component VS Component
-    diffComponent(pVdom, nVdom, currentPatches);
-  } else if (nVdom === null) {
+  if (nVdom === null) {
     // * VS null
     currentPatches.push({
       type: PATCH.REMOVE,
       from: currentIndex,
+      node: pVdom,
       key: null
+    });
+  } else if (isVComponent(pVdom) && isVComponent(nVdom)) {
+    // Component VS Component
+    currentPatches.push({
+      type: PATCH.COMPONENT,
+      pVdom: pVdom,
+      nVdom: nVdom
     });
   } else if (isVNode(pVdom) && isVNode(nVdom)) {
     // VNode VS VNode
@@ -1327,15 +1353,7 @@ function diff(pVdom, nVdom) {
   var patch = {};
   patch.pVdom = pVdom;
   var patches = {};
-  if (isArray(pVdom)) {
-    var currentPatches = [];
-    diffChildren(pVdom, nVdom, 0, patches, currentPatches);
-    if (currentPatches.length > 0) {
-      patches[0] = currentPatches;
-    }
-  } else {
-    diffWalk(pVdom, nVdom, 0, patches);
-  }
+  diffWalk(pVdom, nVdom, 0, patches);
   patch.patches = patches;
   return patch;
 }
@@ -1408,6 +1426,7 @@ function callHooks(hookName) {
 
 var componentId = 1;
 
+// 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
 function uuid() {
   return '$naive-component-' + componentId++ + new Date().getTime();
 }
@@ -1459,10 +1478,20 @@ function Naive(options) {
     },
     "each": function each(list, createItem) {
       var nodes = [];
-      for (var i = 0; i < list.length; ++i) {
-        var item = list[i];
-        var key = isPlainObject(item) && 'id' in item ? item['id'] : i;
-        nodes.push(h(createItem.call(context, item, i, key)));
+      if (isArray(list)) {
+        for (var i = 0; i < list.length; ++i) {
+          var item = list[i];
+          var key = isPlainObject(item) && 'id' in item ? item['id'] : i;
+          nodes.push(h(createItem.call(context, item, i, key)));
+        }
+      } else {
+        for (var _p in list) {
+          if (list.hasOwnProperty(_p)) {
+            var _item = list[_p];
+            var _key = isPlainObject(_item) && 'id' in _item ? _item['id'] : _p;
+            nodes.push(h(createItem.call(context, _item, _p, _key)));
+          }
+        }
       }
       return nodes;
     }
@@ -1473,32 +1502,32 @@ function Naive(options) {
     }, _templateHelpers);
     return vdom;
   };
-  this.$root = null;
-  // components
-  this.components = {};
-  this._components = {};
+  this.$root = null; // 第一次 render 之后才会生成 $root
+  this.components = {}; // 组件描述对象列表
+  this._components = {}; // 组件实例映射
   var componentsOptions = options.components || {};
-  for (var _p in componentsOptions) {
-    if (componentsOptions.hasOwnProperty(_p)) {
-      var componentDefine = componentsOptions[_p] || {};
-      componentDefine.name = componentDefine.name || _p;
+  for (var _p2 in componentsOptions) {
+    if (componentsOptions.hasOwnProperty(_p2)) {
+      var componentDefine = componentsOptions[_p2] || {};
+      componentDefine.name = componentDefine.name || _p2;
       componentDefine.parent = this;
-      this.components[_p] = createComponentCreator(this, componentDefine);
+      this.components[_p2] = createComponentCreator(this, componentDefine);
     }
   }
   this.parent = options.parent || null;
   this._init(options);
+  this._callHooks('created');
 }
 
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
-    // if (!key || !context._components[key]) {
-    var newChild = new Naive(extend({ props: props, key: key }, componentDefine));
-    context._components[newChild.key] = newChild;
-    key = newChild.key;
-    // } else {
-    //   updateProps(context._components[key], props);
-    // }
+    if (!key || !context._components[key]) {
+      var options = extend({}, componentDefine, { props: props, key: key });
+      var newChild = new Naive(options);
+      context._components[key] = newChild;
+    } else {
+      updateProps(context._components[key], props);
+    }
     return context._components[key];
   };
 }
@@ -1535,7 +1564,22 @@ prtt.update = function update() {
   return this;
 };
 
-
+function updateProps(component, props) {
+  var combineProps = {};
+  if (props) {
+    for (var p in props) {
+      if (props.hasOwnProperty(p)) {
+        component.props[p] = props[p];
+        if (/^:/.test(p)) {
+          combineProps[p.slice(1)] = props[p];
+        } else {
+          combineProps[p] = String(props[p]);
+        }
+      }
+    }
+  }
+  extend(component.state, combineProps);
+}
 
 prtt._init = function _init(options) {
   var methods = options.methods || {};
@@ -1555,6 +1599,9 @@ prtt._init = function _init(options) {
       this._addHook(p, hooks[p]);
     }
   }
+  if (options.init) {
+    options.init.call(this);
+  }
   this.vdom = this.vdomRender();
 };
 
@@ -1563,18 +1610,20 @@ prtt.mount = function mount(selector) {
   if (!mountPoint) {
     throw new NaiveException('找不到挂载节点');
   }
-  replaceNode(this.render(), mountPoint);
-  this.mounted = true;
+  if (this.$root) {
+    replaceNode(this.$root, mountPoint);
+  } else {
+    replaceNode(this.render(), mountPoint);
+  }
   this._callHooks('mounted');
-  // child mounted
-  // for (let c in this._components) {
-  //   if (this._components.hasOwnProperty(c)) {
-  //     const _component = this._components[c]
-  //     if (!_component.mounted) {
-  //       _component._callHooks('mounted');
-  //     }
-  //   }
-  // }
+};
+
+prtt.unmount = function unmount() {
+  if (!this.$root) {
+    return this;
+  }
+  removeNode(this.$root);
+  this._callHooks('unmounted');
 };
 
 prtt._callHooks = callHooks;

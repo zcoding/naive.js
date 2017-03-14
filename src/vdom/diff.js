@@ -81,33 +81,20 @@ function diffChildren (pChildren, nChildren, parentIndex, patches, parentPatches
   }
 }
 
-function diffComponent(pVdom, nVdom, currentPatches) {
-  // 如果是 component 则对 component 的 vdom 进行 diff
-  // debugger
-  // 如果 key 相同，说明 component 需要 update
-  // 如果 key 不同，说明 component 需要 mounted 和 unmounted
-  // if (pVdom.key === nVdom.key) {
-  //   console.log('同一个组件')
-  // } else {
-  //   console.log('不同的组件')
-  // }
-  const componentPatch = diff(isVComponent(pVdom) ? pVdom.vdom : pVdom, isVComponent(nVdom) ? nVdom.vdom : nVdom);
-  currentPatches.push({
-    type: PATCH.COMPONENT,
-    context: isVComponent(nVdom) ? nVdom : null,
-    componentPatch: componentPatch
-  });
-}
-
 function diffWalk (pVdom, nVdom, currentIndex, patches) {
   let currentPatches = []; // 当前层级的 patch
-  if (isVComponent(pVdom) || isVComponent(nVdom)) { // Component VS Component
-    diffComponent(pVdom, nVdom, currentPatches);
-  } else if (nVdom === null) { // * VS null
+  if (nVdom === null) { // * VS null
     currentPatches.push({
       type: PATCH.REMOVE,
       from: currentIndex,
+      node: pVdom,
       key: null
+    });
+  } else if (isVComponent(pVdom) && isVComponent(nVdom)) { // Component VS Component
+    currentPatches.push({
+      type: PATCH.COMPONENT,
+      pVdom: pVdom,
+      nVdom: nVdom
     });
   } else if (isVNode(pVdom) && isVNode(nVdom)) { // VNode VS VNode
     if (pVdom.tagName !== nVdom.tagName || pVdom.key !== nVdom.key) { // 不同 tagName/key 节点: 替换
@@ -146,15 +133,7 @@ export function diff (pVdom, nVdom) {
   let patch = {};
   patch.pVdom = pVdom;
   const patches = {};
-  if (isArray(pVdom)) {
-    const currentPatches = [];
-    diffChildren(pVdom, nVdom, 0, patches, currentPatches);
-    if (currentPatches.length > 0) {
-      patches[0] = currentPatches;
-    }
-  } else {
-    diffWalk(pVdom, nVdom, 0, patches);
-  }
+  diffWalk(pVdom, nVdom, 0, patches);
   patch.patches = patches;
   return patch;
 }

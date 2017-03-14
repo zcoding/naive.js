@@ -24,11 +24,18 @@ export function isUndefined (obj) {
 
 export function noop () {}
 
-export function extend(obj, props) {
-  if (props) {
-    for (let i in props) obj[i] = props[i];
+export function extend(dest) {
+  if (typeof dest !== 'object' || !dest) {
+    return dest;
   }
-  return obj;
+  const sources = Array.prototype.slice.call(arguments, 1);
+  while (sources.length) {
+    const current = sources.shift();
+    for (let p in current) {
+      dest[p] = current[p]
+    }
+  }
+  return dest;
 }
 
 export function clone(obj) {

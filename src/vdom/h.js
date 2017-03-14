@@ -3,6 +3,7 @@ import VText from './vtext';
 import { isArray, isPlainObject } from '../utils';
 import { isVNode, isVText, isVComponent } from './utils';
 
+// create VNode, VText, VComponent
 export default function h (tagName, props, children, key) {
   const context = this || {};
   const components = context['components'] || {};
