@@ -5,6 +5,7 @@ import show from './directives/show';
 import style from './directives/style';
 import model from './directives/model';
 import { attachEvent } from './event';
+import { getObjectFromPath, setObjectFromPath } from './parser';
 
 export function handleDirective (directive, value, element, context) {
   switch (directive) {
@@ -37,11 +38,42 @@ export function handleDirective (directive, value, element, context) {
 export function bindDirective (directive, value, element, context) {
   switch (directive) {
     case 'model':
-      attachEvent(element, 'input', function handleInput () {
-        const setter = {};
-        setter[value] = element.value;
-        context.setState(setter);
-      });
+      if (element.type === 'radio') {
+        attachEvent(element, 'change', function handleChange(event) {
+          const selectValue = event.currentTarget.value;
+          const currentState = context.state;
+          setObjectFromPath(currentState, value, selectValue);
+          context.setState(currentState);
+        });
+      } else if (element.type === 'checkbox') {
+        attachEvent(element, 'change', function handleChange() {
+          const selectValue = event.currentTarget.value;
+          const currentState = context.state;
+          const preValue = getObjectFromPath(currentState, value);
+          if (event.currentTarget.checked) {
+            if (preValue.indexOf(selectValue) === -1) {
+              preValue.push(selectValue);
+            }
+          } else {
+            let i = 0;
+            while(i < preValue.length) {
+              if (preValue[i] === selectValue) {
+                preValue.splice(i, 1);
+                break;
+              }
+              ++i;
+            }
+          }
+          context.setState(currentState);
+        });
+      } else {
+        attachEvent(element, 'input', function handleInput () {
+          // 通过 path 设置 state
+          const currentState = context.state;
+          setObjectFromPath(currentState, value, element.value);
+          context.setState(currentState);
+        });
+      }
       break;
     default:
   }

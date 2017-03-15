@@ -423,17 +423,40 @@ function getObjectFromPath(data, path) {
   return result;
 }
 
+function setObjectFromPath(data, path, value) {
+  var props = parsePath(path);
+  var current = data,
+      parent = data;
+  for (var i = 0; i < props.length - 1; ++i) {
+    parent = current;
+    current = current[props[i]];
+    if (isUndefined(current)) {
+      current = {};
+      parent[props[i]] = current;
+    }
+  }
+  if (i >= 0) {
+    if ((typeof current === 'undefined' ? 'undefined' : _typeof(current)) === 'object') {
+      current[props[i]] = value;
+    } else {
+      current = {};
+      current[props[i]] = value;
+      parent[props[i - 1]] = current;
+    }
+  }
+}
+
 function model(value, element, context) {
   var currentValue = getObjectFromPath(context.state, value);
-  if (element.tagName === 'INPUT') {
-    if (element.type === 'radio' || element.type === 'checkbox') {
-      element.checked = currentValue === element.value;
+  if (element.type === 'radio') {
+    element.checked = currentValue === element.value;
+  } else if (element.type === 'checkbox') {
+    if (isArray(currentValue)) {
+      element.checked = currentValue.indexOf(element.value) !== -1;
     } else {
-      if (element.value !== currentValue) {
-        element.value = currentValue;
-      }
+      element.checked = currentValue === element.value;
     }
-  } else if (element.tagName === 'SELECT') {
+  } else {
     if (element.value !== currentValue) {
       element.value = currentValue;
     }
@@ -479,11 +502,42 @@ function handleDirective(directive, value, element, context) {
 function bindDirective(directive, value, element, context) {
   switch (directive) {
     case 'model':
-      attachEvent(element, 'input', function handleInput() {
-        var setter = {};
-        setter[value] = element.value;
-        context.setState(setter);
-      });
+      if (element.type === 'radio') {
+        attachEvent(element, 'change', function handleChange(event) {
+          var selectValue = event.currentTarget.value;
+          var currentState = context.state;
+          setObjectFromPath(currentState, value, selectValue);
+          context.setState(currentState);
+        });
+      } else if (element.type === 'checkbox') {
+        attachEvent(element, 'change', function handleChange() {
+          var selectValue = event.currentTarget.value;
+          var currentState = context.state;
+          var preValue = getObjectFromPath(currentState, value);
+          if (event.currentTarget.checked) {
+            if (preValue.indexOf(selectValue) === -1) {
+              preValue.push(selectValue);
+            }
+          } else {
+            var i = 0;
+            while (i < preValue.length) {
+              if (preValue[i] === selectValue) {
+                preValue.splice(i, 1);
+                break;
+              }
+              ++i;
+            }
+          }
+          context.setState(currentState);
+        });
+      } else {
+        attachEvent(element, 'input', function handleInput() {
+          // 通过 path 设置 state
+          var currentState = context.state;
+          setObjectFromPath(currentState, value, element.value);
+          context.setState(currentState);
+        });
+      }
       break;
     default:
   }
@@ -1210,6 +1264,7 @@ function patchProps(domNode, patch, context) {
   }
 }
 
+// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1293,8 +1348,8 @@ function diffChildren(pChildren, nChildren, parentIndex, patches, parentPatches)
 
 function diffWalk(pVdom, nVdom, currentIndex, patches) {
   var currentPatches = []; // 当前层级的 patch
-  if (nVdom === null) {
-    // * VS null
+  if (nVdom == null) {
+    // * VS null|undefined
     currentPatches.push({
       type: PATCH.REMOVE,
       from: currentIndex,

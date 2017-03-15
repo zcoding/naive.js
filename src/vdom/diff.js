@@ -83,7 +83,7 @@ function diffChildren (pChildren, nChildren, parentIndex, patches, parentPatches
 
 function diffWalk (pVdom, nVdom, currentIndex, patches) {
   let currentPatches = []; // 当前层级的 patch
-  if (nVdom === null) { // * VS null
+  if (nVdom == null) { // * VS null|undefined
     currentPatches.push({
       type: PATCH.REMOVE,
       from: currentIndex,
@@ -130,7 +130,7 @@ function diffWalk (pVdom, nVdom, currentIndex, patches) {
 }
 
 export function diff (pVdom, nVdom) {
-  let patch = {};
+  const patch = {};
   patch.pVdom = pVdom;
   const patches = {};
   diffWalk(pVdom, nVdom, 0, patches);

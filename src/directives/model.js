@@ -1,16 +1,17 @@
 import { getObjectFromPath } from '../parser';
+import { isArray } from '../utils';
 
 export default function model(value, element, context) {
   const currentValue = getObjectFromPath(context.state, value);
-  if (element.tagName === 'INPUT') {
-    if (element.type === 'radio' || element.type === 'checkbox') {
-      element.checked = currentValue === element.value;
+  if (element.type === 'radio') {
+    element.checked = currentValue === element.value;
+  } else if (element.type === 'checkbox') {
+    if (isArray(currentValue)) {
+      element.checked = currentValue.indexOf(element.value) !== -1;
     } else {
-      if (element.value !== currentValue) {
-        element.value = currentValue;
-      }
+      element.checked = currentValue === element.value;
     }
-  } else if (element.tagName === 'SELECT') {
+  } else {
     if (element.value !== currentValue) {
       element.value = currentValue;
     }
