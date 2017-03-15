@@ -6,6 +6,7 @@ import { handleDirective, bindDirective } from '../directive';
 import { attachEvent } from '../event';
 import { NaiveException } from '../exception';
 import { getObjectFromPath } from '../parser';
+import h from './h';
 
 export default function VNode (tagName, props, children, key) {
   this.tagName = tagName;
@@ -15,14 +16,12 @@ export default function VNode (tagName, props, children, key) {
   children = children || [];
   for (let i = 0; i < children.length; ++i) {
     const child = children[i];
-    if (isVNode(child) || isVText(child) || isVComponent(child)) {
-      childNodes.push(child);
-    } else if (typeof child === 'string' || typeof child === 'number') {
-      childNodes.push(new VText(child));
-    } else if (isArray(child)) {
-      childNodes = childNodes.concat(child);
+    if (isArray(child)) {
+      childNodes = childNodes.concat(h.call(this, child));
     } else {
-      // warn('children 类型不支持');
+      if (child) {
+        childNodes.push(h.call(this, child));
+      }
     }
   }
   this.children = childNodes;

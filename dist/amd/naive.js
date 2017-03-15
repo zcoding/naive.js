@@ -56,6 +56,13 @@ function isPlainObject(obj) {
 
  // asap async
 
+/**
+ * 获取元素
+ *
+ * IE 8 只支持到 CSS2 选择器
+ *
+ * @param {String} selector
+ */
 function getElement(selector) {
   return typeof selector === 'string' ? query(selector) : selector;
 }
@@ -182,6 +189,7 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
+// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -350,6 +358,15 @@ function restore(str, i) {
  */
 
 
+/**
+ * parseExpression 解析表达式
+ * 对于 `b-for` 指令，需要特殊处理，其它指令只要返回表达式执行函数即可
+ *
+ * @param {String} name 指令名称
+ * @param {String} expression 表达式字符串
+ * @param {String} 作用域限制
+ * @return {{raw:String, expression:Function}}
+ */
 
 
 /**
@@ -458,6 +475,21 @@ function model(value, element, context) {
     } else {
       element.checked = currentValue === element.value;
     }
+  } else if (element.tagName === 'SELECT') {
+    if (element.multiple) {
+      var options = element.options;
+      for (var i = 0; i < options.length; ++i) {
+        if (currentValue.indexOf(options[i].value) !== -1) {
+          options[i].selected = true;
+        } else {
+          options[i].selected = false;
+        }
+      }
+    } else {
+      if (element.value !== currentValue) {
+        element.value = currentValue;
+      }
+    }
   } else {
     if (element.value !== currentValue) {
       element.value = currentValue;
@@ -532,6 +564,25 @@ function bindDirective(directive, value, element, context) {
           }
           context.setState(currentState);
         });
+      } else if (element.tagName === 'SELECT') {
+        attachEvent(element, 'change', function handleInput() {
+          // 通过 path 设置 state
+          var currentState = context.state;
+          if (element.multiple) {
+            var options = element.options;
+            var newValue = [];
+            for (var i = 0; i < options.length; ++i) {
+              if (options[i].selected) {
+                newValue.push(options[i].value);
+              }
+            }
+            setObjectFromPath(currentState, value, newValue);
+            context.setState(currentState);
+          } else {
+            setObjectFromPath(currentState, value, element.value);
+            context.setState(currentState);
+          }
+        });
       } else {
         attachEvent(element, 'input', function handleInput() {
           // 通过 path 设置 state
@@ -572,6 +623,35 @@ function NaiveException(message) {
   this.message = message;
 }
 
+// create VNode, VText, VComponent
+function h(tagName, props, children, key) {
+  var context = this || {};
+  var components = context['components'] || {};
+  if (isVNode(tagName) || isVText(tagName) || isVComponent(tagName)) {
+    return tagName;
+  } else if (isPlainObject(tagName)) {
+    if (components.hasOwnProperty(tagName.tagName)) {
+      return components[tagName.tagName](tagName.props, tagName.children, tagName.key);
+    } else {
+      return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
+    }
+  } else if (isArray(tagName)) {
+    var list = [];
+    for (var i = 0; i < tagName.length; ++i) {
+      list.push(h(tagName[i]));
+    }
+    return list;
+  } else if (arguments.length < 2) {
+    return new VText(tagName);
+  } else {
+    if (components.hasOwnProperty(tagName)) {
+      return components[tagName](props, children, key);
+    } else {
+      return new VNode(tagName, props, children, key);
+    }
+  }
+}
+
 function VNode(tagName, props, children, key) {
   this.tagName = tagName;
   this.props = props || {};
@@ -580,14 +660,12 @@ function VNode(tagName, props, children, key) {
   children = children || [];
   for (var i = 0; i < children.length; ++i) {
     var child = children[i];
-    if (isVNode(child) || isVText(child) || isVComponent(child)) {
-      childNodes.push(child);
-    } else if (typeof child === 'string' || typeof child === 'number') {
-      childNodes.push(new VText(child));
-    } else if (isArray(child)) {
-      childNodes = childNodes.concat(child);
+    if (isArray(child)) {
+      childNodes = childNodes.concat(h.call(this, child));
     } else {
-      // warn('children 类型不支持');
+      if (child) {
+        childNodes.push(h.call(this, child));
+      }
     }
   }
   this.children = childNodes;
@@ -598,7 +676,7 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
-// 检查是否指令属性
+// 事件指令的值可能是表达式
 function matchExpression(exp) {
   return exp.match(/(.*)\((.*)\)/);
 }
@@ -1148,7 +1226,9 @@ function doApplyPatches(context, domNode, patches) {
           // 插入节点
           if (domNode) {
             domNode.appendChild(patch.node.render(context));
-          } else {}
+          } else {
+            // 如果节点不存在了，不需要执行插入操作
+          }
         }
         break;
       case PATCH.REMOVE:
@@ -1225,7 +1305,6 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
-// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1411,34 +1490,6 @@ function diff(pVdom, nVdom) {
   diffWalk(pVdom, nVdom, 0, patches);
   patch.patches = patches;
   return patch;
-}
-
-function h(tagName, props, children, key) {
-  var context = this || {};
-  var components = context['components'] || {};
-  if (isVNode(tagName) || isVText(tagName) || isVComponent(tagName)) {
-    return tagName;
-  } else if (isPlainObject(tagName)) {
-    if (components.hasOwnProperty(tagName.tagName)) {
-      return components[tagName.tagName](tagName.props, tagName.children, tagName.key);
-    } else {
-      return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
-    }
-  } else if (isArray(tagName)) {
-    var list = [];
-    for (var i = 0; i < tagName.length; ++i) {
-      list.push(h(tagName[i]));
-    }
-    return list;
-  } else if (arguments.length < 2) {
-    return new VText(tagName);
-  } else {
-    if (components.hasOwnProperty(tagName)) {
-      return components[tagName](props, children, key);
-    } else {
-      return new VNode(tagName, props, children, key);
-    }
-  }
 }
 
 function addHook(hookName, callback) {

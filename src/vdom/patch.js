@@ -53,6 +53,7 @@ function doApplyPatches (context, domNode, patches) {
           if (domNode) {
             domNode.appendChild(patch.node.render(context));
           } else {
+            // 如果节点不存在了，不需要执行插入操作
           }
         }
         break;

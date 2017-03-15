@@ -66,6 +66,25 @@ export function bindDirective (directive, value, element, context) {
           }
           context.setState(currentState);
         });
+      } else if (element.tagName === 'SELECT') {
+        attachEvent(element, 'change', function handleInput () {
+          // 通过 path 设置 state
+          const currentState = context.state;
+          if (element.multiple) {
+            const options = element.options;
+            const newValue = [];
+            for (let i = 0; i < options.length; ++i) {
+              if (options[i].selected) {
+                newValue.push(options[i].value);
+              }
+            }
+            setObjectFromPath(currentState, value, newValue);
+            context.setState(currentState);
+          } else {
+            setObjectFromPath(currentState, value, element.value);
+            context.setState(currentState);
+          }
+        });
       } else {
         attachEvent(element, 'input', function handleInput () {
           // 通过 path 设置 state

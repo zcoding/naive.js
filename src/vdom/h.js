@@ -11,7 +11,7 @@ export default function h (tagName, props, children, key) {
     return tagName;
   } else if (isPlainObject(tagName)) {
     if (components.hasOwnProperty(tagName.tagName)) {
-     return components[tagName.tagName](tagName.props, tagName.children, tagName.key);
+      return components[tagName.tagName](tagName.props, tagName.children, tagName.key);
     } else {
       return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
     }
