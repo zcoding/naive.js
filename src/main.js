@@ -5,6 +5,7 @@ import h from './vdom/h';
 import { warn, extend, isFunction, isPlainObject, toArray, isArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
+import { enqueueRender } from './defer';
 
 let componentId = 1;
 
@@ -126,16 +127,20 @@ prtt.render = function render () {
 };
 
 prtt.setState = function setState (state) {
+  // console.count('setState');
   extend(this.state, state);
-  this.update(); // @TODO nextTick 的时候再 update
+  enqueueRender(this);
+  // this.update();
   return this;
 };
 
 // 更新视图
 prtt.update = function update () {
+  // console.count('update');
   if (!this.$root) {
     return this;
   }
+  // @TODO 每次调用 update 时，向更新队列添加 update 回调，等 nextTick 触发的时候再 update
   const preVdom = this.vdom;
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
@@ -147,6 +152,7 @@ prtt.update = function update () {
     warn('不需要更新视图');
   }
   this._callHooks('updated');
+  this._dirty = false;
   return this;
 };
 

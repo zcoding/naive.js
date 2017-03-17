@@ -54,13 +54,6 @@ function isPlainObject(obj) {
 
  // asap async
 
-/**
- * 获取元素
- *
- * IE 8 只支持到 CSS2 选择器
- *
- * @param {String} selector
- */
 function getElement(selector) {
   return typeof selector === 'string' ? query(selector) : selector;
 }
@@ -187,7 +180,6 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -356,15 +348,6 @@ function restore(str, i) {
  */
 
 
-/**
- * parseExpression 解析表达式
- * 对于 `b-for` 指令，需要特殊处理，其它指令只要返回表达式执行函数即可
- *
- * @param {String} name 指令名称
- * @param {String} expression 表达式字符串
- * @param {String} 作用域限制
- * @return {{raw:String, expression:Function}}
- */
 
 
 /**
@@ -621,7 +604,6 @@ function NaiveException(message) {
   this.message = message;
 }
 
-// create VNode, VText, VComponent
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -674,11 +656,12 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
-// 事件指令的值可能是表达式
+// 检查是否指令属性
 function matchExpression(exp) {
   return exp.match(/(.*)\((.*)\)/);
 }
 
+// [重要] 解析事件绑定的方法
 function parseArgumentList(exp) {
   var i = 0;
   var needSeparate = false;
@@ -1303,6 +1286,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1343,7 +1327,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1528,6 +1511,32 @@ function callHooks(hookName) {
   }
 }
 
+// 异步执行
+// 如果 Promise 可用，就用 Promise，否则用 setTimeout
+var resolved$1 = typeof Promise !== 'undefined' && Promise.resolve();
+var defer$1 = resolved$1 ? function (f) {
+  resolved$1.then(f);
+} : setTimeout;
+
+var items = [];
+
+function enqueueRender(component) {
+  if (!component._dirty && (component._dirty = true) && items.push(component) == 1) {
+    defer$1(rerender);
+  }
+}
+
+function rerender() {
+  var p = void 0,
+      list = items;
+  items = [];
+  while (p = list.pop()) {
+    if (p._dirty) {
+      p.update();
+    }
+  }
+}
+
 var componentId = 1;
 
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
@@ -1644,16 +1653,20 @@ prtt.render = function render() {
 };
 
 prtt.setState = function setState(state) {
+  // console.count('setState');
   extend(this.state, state);
-  this.update(); // @TODO nextTick 的时候再 update
+  enqueueRender(this);
+  // this.update();
   return this;
 };
 
 // 更新视图
 prtt.update = function update() {
+  // console.count('update');
   if (!this.$root) {
     return this;
   }
+  // @TODO 每次调用 update 时，向更新队列添加 update 回调，等 nextTick 触发的时候再 update
   var preVdom = this.vdom;
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
@@ -1665,6 +1678,7 @@ prtt.update = function update() {
     warn('不需要更新视图');
   }
   this._callHooks('updated');
+  this._dirty = false;
   return this;
 };
 

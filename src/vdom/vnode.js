@@ -47,6 +47,7 @@ function matchExpression (exp) {
   return exp.match(/(.*)\((.*)\)/);
 }
 
+// [重要] 解析事件绑定的方法
 function parseArgumentList (exp) {
   let i = 0;
   let needSeparate = false;
