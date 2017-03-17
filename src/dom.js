@@ -8,7 +8,16 @@ import { isUndefined, toArray } from './utils';
  * @param {String} selector
  */
 export function getElement(selector) {
-  return typeof selector === 'string' ? query(selector) : selector;
+  const isString = typeof selector === 'string';
+  if (isString) {
+    if (selector[0] === '#') {
+      return document.getElementById(selector.slice(1));
+    } else {
+      return query(selector);
+    }
+  } else {
+    return selector;
+  }
 }
 
 export function createElement(tag) {
@@ -32,7 +41,7 @@ export function query(selector, context) {
  * 检查一个元素是否在 document 内
  */
 export function inDoc(node) {
-  var doc = node.ownerDocument.documentElement;
+  const doc = node.ownerDocument.documentElement;
   return doc === node || node && node.nodeType === 1 && doc.contains(node);
 }
 
@@ -41,12 +50,6 @@ export function removeNode(node) {
   if (parentNode) {
     parentNode.removeChild(node);
   }
-}
-
-export function createAnchor(name) {
-  var n = document.createTextNode('');
-  n.name = name;
-  return n;
 }
 
 export function before(newNode, node) {
@@ -80,15 +83,6 @@ export function hasAttr(node, name) {
 export function removeAttr(node, name) {
   node.removeAttribute(name);
 }
-
-export function removeAllChildren(node) {
-  while(node.childNodes.length > 0) {
-    node.removeChild(node.childNodes[0]);
-  }
-}
-
-
-const classSplitReg = /\s+/;
 
 const supportClassList = !isUndefined(document.createElement('div').classList);
 

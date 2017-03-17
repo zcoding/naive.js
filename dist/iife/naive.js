@@ -43,7 +43,9 @@ function extend(dest) {
   return dest;
 }
 
-
+function clone(obj) {
+  return extend({}, obj);
+}
 
 function isFunction(obj) {
   return typeof obj === 'function';
@@ -58,7 +60,16 @@ function isPlainObject(obj) {
  // asap async
 
 function getElement(selector) {
-  return typeof selector === 'string' ? query(selector) : selector;
+  var isString = typeof selector === 'string';
+  if (isString) {
+    if (selector[0] === '#') {
+      return document.getElementById(selector.slice(1));
+    } else {
+      return query(selector);
+    }
+  } else {
+    return selector;
+  }
 }
 
 function createElement(tag) {
@@ -90,8 +101,6 @@ function removeNode(node) {
 
 
 
-
-
 function replaceNode(newNode, node) {
   node.parentNode.replaceChild(newNode, node);
 }
@@ -111,8 +120,6 @@ function setAttr(node, attr, value) {
 function removeAttr(node, name) {
   node.removeAttribute(name);
 }
-
-
 
 var supportClassList = !isUndefined(document.createElement('div').classList);
 
@@ -1507,10 +1514,10 @@ function removeHook(hookName, callback) {
   return this;
 }
 
-function callHooks(hookName) {
+function callHooks(hookName, params) {
   var _callbacks = this._hooks[hookName] || [];
   for (var i = 0; i < _callbacks.length; ++i) {
-    _callbacks[i].call(this);
+    _callbacks[i].apply(this, params);
   }
 }
 
@@ -1521,30 +1528,58 @@ var defer$1 = resolved$1 ? function (f) {
   resolved$1.then(f);
 } : setTimeout;
 
-var items = [];
+var renderCallbacks = [];
+
+var nextTickCallbacks = [];
+
+var isDirty = false;
+
+function nextTick(callback) {
+  nextTickCallbacks.push(callback);
+  if (renderCallbacks.length === 0) {
+    defer$1(doNextTick);
+  }
+}
 
 function enqueueRender(component) {
-  if (!component._dirty && (component._dirty = true) && items.push(component) == 1) {
+  if (!component._dirty && (component._dirty = true) && renderCallbacks.push(component) === 1) {
+    isDirty = true;
     defer$1(rerender);
+  }
+}
+
+function doNextTick() {
+  if (isDirty) {
+    // wait for rendering
+    return false;
+  }
+  var p = void 0,
+      list = nextTickCallbacks;
+  nextTickCallbacks = [];
+  while (p = list.shift()) {
+    p();
   }
 }
 
 function rerender() {
   var p = void 0,
-      list = items;
-  items = [];
+      list = renderCallbacks;
+  renderCallbacks = [];
   while (p = list.pop()) {
     if (p._dirty) {
       p.update();
     }
   }
+  isDirty = false;
+  doNextTick();
 }
 
 var componentId = 1;
 
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
+// componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
 function uuid() {
-  return '$naive-component-' + componentId++ + new Date().getTime();
+  return '$naive-component-' + componentId++ + '-' + new Date().getTime();
 }
 
 function emptyRender() {
@@ -1659,7 +1694,6 @@ prtt.setState = function setState(state) {
   // console.count('setState');
   extend(this.state, state);
   enqueueRender(this);
-  // this.update();
   return this;
 };
 
@@ -1669,7 +1703,6 @@ prtt.update = function update() {
   if (!this.$root) {
     return this;
   }
-  // @TODO 每次调用 update 时，向更新队列添加 update 回调，等 nextTick 触发的时候再 update
   var preVdom = this.vdom;
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
@@ -1680,9 +1713,14 @@ prtt.update = function update() {
   } else {
     warn('不需要更新视图');
   }
-  this._callHooks('updated');
+  this._callHooks('updated', [clone(this.state)]);
   this._dirty = false;
   return this;
+};
+
+// nextTick
+prtt.nextTick = function nextTick$$1(callback) {
+  nextTick(callback);
 };
 
 function updateProps(component, props) {
@@ -1736,7 +1774,7 @@ prtt.mount = function mount(selector) {
   } else {
     replaceNode(this.render(), mountPoint);
   }
-  this._callHooks('mounted');
+  this._callHooks('mounted', [this.$root]);
 };
 
 prtt.unmount = function unmount() {

@@ -2,16 +2,17 @@ import { getElement, appendChild, replaceNode, removeNode } from './dom';
 import { diff } from './vdom/diff';
 import { applyPatch } from './vdom/patch';
 import h from './vdom/h';
-import { warn, extend, isFunction, isPlainObject, toArray, isArray } from './utils';
+import { warn, extend, clone, isFunction, isPlainObject, toArray, isArray } from './utils';
 import { addHook, removeHook, callHooks } from './api/hooks';
 import { NaiveException } from './exception';
-import { enqueueRender } from './defer';
+import { enqueueRender, nextTick as nextTickDefer } from './defer';
 
 let componentId = 1;
 
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
+// componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
 function uuid() {
-  return '$naive-component-' + componentId++ + new Date().getTime();
+  return '$naive-component-' + componentId++ + '-' + new Date().getTime();
 }
 
 function emptyRender () {
@@ -130,7 +131,6 @@ prtt.setState = function setState (state) {
   // console.count('setState');
   extend(this.state, state);
   enqueueRender(this);
-  // this.update();
   return this;
 };
 
@@ -140,7 +140,6 @@ prtt.update = function update () {
   if (!this.$root) {
     return this;
   }
-  // @TODO 每次调用 update 时，向更新队列添加 update 回调，等 nextTick 触发的时候再 update
   const preVdom = this.vdom;
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom);
@@ -151,9 +150,14 @@ prtt.update = function update () {
   } else {
     warn('不需要更新视图');
   }
-  this._callHooks('updated');
+  this._callHooks('updated', [clone(this.state)]);
   this._dirty = false;
   return this;
+};
+
+// nextTick
+prtt.nextTick = function nextTick(callback) {
+  nextTickDefer(callback);
 };
 
 function updateProps (component, props) {
@@ -207,7 +211,7 @@ prtt.mount = function mount (selector) {
   } else {
     replaceNode(this.render(), mountPoint);
   }
-  this._callHooks('mounted');
+  this._callHooks('mounted', [this.$root]);
 };
 
 prtt.unmount = function unmount () {

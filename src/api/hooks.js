@@ -31,9 +31,9 @@ export function removeHook (hookName, callback) {
   return this;
 }
 
-export function callHooks (hookName) {
+export function callHooks (hookName, params) {
   const _callbacks = this._hooks[hookName] || [];
   for (let i = 0; i < _callbacks.length; ++i) {
-    _callbacks[i].call(this);
+    _callbacks[i].apply(this, params);
   }
 }
