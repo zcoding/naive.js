@@ -129,6 +129,10 @@ prtt.render = function render () {
 
 prtt.setState = function setState (state) {
   // console.count('setState');
+  // @TODO 不能使用同一个 state
+  if (state === this.state) {
+    warn('同一个 state');
+  }
   extend(this.state, state);
   enqueueRender(this);
   return this;

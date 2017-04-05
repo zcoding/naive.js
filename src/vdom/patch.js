@@ -1,8 +1,6 @@
 import { setAttr, replaceNode, removeNode, removeAttr } from '../dom';
 import { handleDirective, handleDirectiveRemove } from '../directive';
-import { attachEvent, detachEvent } from '../event';
 import { domIndex } from './dom-index';
-import { bindEvent } from './vnode';
 import { isVComponent } from './utils';
 
 export const PATCH = {
@@ -144,10 +142,7 @@ function patchProps (domNode, patch, context) {
         } else if (/^:/.test(p)) {
           handleDirective(p.slice(1), setProps[p], domNode, context);
         } else {
-          const eventName = p.slice(1);
-          const exp = setProps[p];
-          // detachEvent(domNode, eventName); // @TODO 需要解除绑定原有的事件?
-          bindEvent(eventName, exp, domNode, context);
+          // 事件不处理
         }
       } else { // 普通属性
         if (typeof patch.props[p] === 'undefined') {

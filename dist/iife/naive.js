@@ -7,6 +7,8 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj;
 };
 
+var sliceArray = Array.prototype.slice;
+
 function warn(message) {
   if (window.console) {
     console.warn('[naive.js] ' + message);
@@ -20,7 +22,7 @@ var isArray = Array.isArray ? Array.isArray : function isArray(obj) {
 };
 
 function toArray$$1(obj) {
-  return Array.prototype.slice.call(obj, 0);
+  return sliceArray.call(obj, 0);
 }
 
 function isUndefined(obj) {
@@ -33,7 +35,7 @@ function extend(dest) {
   if ((typeof dest === 'undefined' ? 'undefined' : _typeof(dest)) !== 'object' || !dest) {
     return dest;
   }
-  var sources = Array.prototype.slice.call(arguments, 1);
+  var sources = sliceArray.call(arguments, 1);
   while (sources.length) {
     var current = sources.shift();
     for (var p in current) {
@@ -47,6 +49,8 @@ function clone(obj) {
   return extend({}, obj);
 }
 
+
+
 function isFunction(obj) {
   return typeof obj === 'function';
 }
@@ -59,6 +63,13 @@ function isPlainObject(obj) {
 
  // asap async
 
+/**
+ * 获取元素
+ *
+ * IE 8 只支持到 CSS2 选择器
+ *
+ * @param {String} selector
+ */
 function getElement(selector) {
   var isString = typeof selector === 'string';
   if (isString) {
@@ -190,6 +201,7 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
+// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -358,6 +370,15 @@ function restore(str, i) {
  */
 
 
+/**
+ * parseExpression 解析表达式
+ * 对于 `b-for` 指令，需要特殊处理，其它指令只要返回表达式执行函数即可
+ *
+ * @param {String} name 指令名称
+ * @param {String} expression 表达式字符串
+ * @param {String} 作用域限制
+ * @return {{raw:String, expression:Function}}
+ */
 
 
 /**
@@ -530,14 +551,14 @@ function bindDirective(directive, value, element, context) {
       if (element.type === 'radio') {
         attachEvent(element, 'change', function handleChange(event) {
           var selectValue = event.currentTarget.value;
-          var currentState = context.state;
+          var currentState = clone(context.state);
           setObjectFromPath(currentState, value, selectValue);
           context.setState(currentState);
         });
       } else if (element.type === 'checkbox') {
         attachEvent(element, 'change', function handleChange() {
           var selectValue = event.currentTarget.value;
-          var currentState = context.state;
+          var currentState = clone(context.state);
           var preValue = getObjectFromPath(currentState, value);
           if (event.currentTarget.checked) {
             if (preValue.indexOf(selectValue) === -1) {
@@ -558,7 +579,7 @@ function bindDirective(directive, value, element, context) {
       } else if (element.tagName === 'SELECT') {
         attachEvent(element, 'change', function handleInput() {
           // 通过 path 设置 state
-          var currentState = context.state;
+          var currentState = clone(context.state);
           if (element.multiple) {
             var options = element.options;
             var newValue = [];
@@ -577,7 +598,7 @@ function bindDirective(directive, value, element, context) {
       } else {
         attachEvent(element, 'input', function handleInput() {
           // 通过 path 设置 state
-          var currentState = context.state;
+          var currentState = clone(context.state);
           setObjectFromPath(currentState, value, element.value);
           context.setState(currentState);
         });
@@ -614,6 +635,7 @@ function NaiveException(message) {
   this.message = message;
 }
 
+// create VNode, VText, VComponent
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -653,7 +675,7 @@ function VNode(tagName, props, children, key) {
     if (isArray(child)) {
       childNodes = childNodes.concat(h.call(this, child));
     } else {
-      if (child) {
+      if (child !== false) {
         childNodes.push(h.call(this, child));
       }
     }
@@ -664,158 +686,6 @@ function VNode(tagName, props, children, key) {
     count += this.children[_i].count || 0;
   }
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
-}
-
-// 检查是否指令属性
-function matchExpression(exp) {
-  return exp.match(/(.*)\((.*)\)/);
-}
-
-// [重要] 解析事件绑定的方法
-function parseArgumentList(exp) {
-  var i = 0;
-  var needSeparate = false;
-  var inSingle = false;
-  var single = [];
-  var inDouble = false;
-  var double = [];
-  var inWord = false;
-  var word = [];
-  var args = [];
-  while (i < exp.length) {
-    var t = exp[i];
-    if (t === '\'') {
-      if (inSingle) {
-        args.push({
-          type: 'string',
-          value: single.join('')
-        });
-        single.splice(0);
-        inSingle = false;
-        needSeparate = true;
-      } else if (inDouble) {
-        double.push(t);
-      } else if (inWord) {
-        throw new NaiveException('参数错误');
-      } else if (needSeparate) {
-        throw new NaiveException('参数错误');
-      } else {
-        inSingle = true;
-      }
-    } else if (t === '"') {
-      if (inDouble) {
-        args.push({
-          type: 'string',
-          value: double.join('')
-        });
-        double.splice(0);
-        inDouble = false;
-        needSeparate = true;
-      } else if (inSingle) {
-        double.push(t);
-      } else if (inWord) {
-        throw new NaiveException('参数错误');
-      } else if (needSeparate) {
-        throw new NaiveException('参数错误');
-      } else {
-        inDouble = true;
-      }
-    } else if (t === ',') {
-      if (inSingle) {
-        single.push(t);
-      } else if (inDouble) {
-        double.push(t);
-      } else if (inWord) {
-        args.push({
-          type: 'exp',
-          value: word.join('')
-        });
-        word.splice(0);
-        inWord = false;
-        needSeparate = false;
-      } else if (!needSeparate) {
-        throw new NaiveException('参数错误');
-      } else {
-        needSeparate = false;
-      }
-    } else if (t === ' ') {
-      if (inSingle) {
-        single.push(t);
-      } else if (inDouble) {
-        double.push(t);
-      } else if (inWord) {
-        throw new NaiveException('参数错误');
-      }
-    } else {
-      if (inSingle) {
-        single.push(t);
-      } else if (inDouble) {
-        double.push(t);
-      } else if (inWord) {
-        word.push(t);
-      } else {
-        if (needSeparate) {
-          throw new NaiveException('参数错误');
-        } else {
-          word.push(t);
-          inWord = true;
-        }
-      }
-    }
-    ++i;
-  }
-  if (inSingle || inDouble) {
-    throw new NaiveException('参数错误');
-  } else if (inWord) {
-    args.push({
-      type: 'exp',
-      value: word.join('')
-    });
-  }
-  return args;
-}
-
-function parseExpression$$1(exp, data) {
-  if (/^[+-]?\d+\.?\d*?$/.test(exp)) {
-    return Number(exp);
-  } else {
-    return getObjectFromPath(data, exp);
-  }
-}
-
-function bindEvent(eventName, exp, element, context) {
-  var handlerFunc = void 0;
-  if (isFunction(exp)) {
-    handlerFunc = exp;
-  } else {
-    (function () {
-      var matches = matchExpression(exp);
-      if (matches) {
-        (function () {
-          var methodName = matches[1];
-          handlerFunc = function handlerFunc(evt) {
-            var args = parseArgumentList(matches[2]);
-            var _args = [];
-            for (var i = 0; i < args.length; ++i) {
-              if (args[i].type === 'string') {
-                _args.push(args[i].value);
-              } else if (args[i].value === '$event') {
-                _args.push(evt);
-              } else {
-                _args.push(parseExpression$$1(args[i].value, this.state));
-              }
-            }
-            this[methodName].apply(this, _args);
-          };
-        })();
-      } else {
-        handlerFunc = context[exp];
-      }
-    })();
-  }
-  attachEvent(element, eventName, function handler(evt) {
-    return handlerFunc.call(context, evt);
-  });
 }
 
 VNode.prototype.render = function renderVNodeToElement(context) {
@@ -831,8 +701,8 @@ VNode.prototype.render = function renderVNodeToElement(context) {
         handleDirective(p.slice(1), props[p], element, context);
       } else if (/^@/.test(p)) {
         var eventName = p.slice(1);
-        var exp = props[p];
-        bindEvent(eventName, exp, element, context);
+        var handler = props[p];
+        attachEvent(element, eventName, handler);
       } else {
         setAttr(element, p, props[p]);
       }
@@ -1296,7 +1166,6 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
-// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1310,10 +1179,7 @@ function patchProps(domNode, patch, context) {
         } else if (/^:/.test(p)) {
           handleDirective(p.slice(1), setProps[p], domNode, context);
         } else {
-          var eventName = p.slice(1);
-          var exp = setProps[p];
-          // detachEvent(domNode, eventName); // @TODO 需要解除绑定原有的事件?
-          bindEvent(eventName, exp, domNode, context);
+          // 事件不处理
         }
       } else {
         // 普通属性
@@ -1337,6 +1203,7 @@ function patchProps(domNode, patch, context) {
   }
 }
 
+// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1692,6 +1559,10 @@ prtt.render = function render() {
 
 prtt.setState = function setState(state) {
   // console.count('setState');
+  // @TODO 不能使用同一个 state
+  if (state === this.state) {
+    warn('同一个 state');
+  }
   extend(this.state, state);
   enqueueRender(this);
   return this;

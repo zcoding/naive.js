@@ -1,3 +1,5 @@
+const sliceArray = Array.prototype.slice;
+
 export function warn (message) {
   if (window.console) {
     console.warn(`[naive.js] ${message}`);
@@ -15,7 +17,7 @@ export const isArray = Array.isArray ? Array.isArray : function isArray (obj) {
 };
 
 export function toArray (obj) {
-  return Array.prototype.slice.call(obj, 0);
+  return sliceArray.call(obj, 0);
 }
 
 export function isUndefined (obj) {
@@ -28,7 +30,7 @@ export function extend(dest) {
   if (typeof dest !== 'object' || !dest) {
     return dest;
   }
-  const sources = Array.prototype.slice.call(arguments, 1);
+  const sources = sliceArray.call(arguments, 1);
   while (sources.length) {
     const current = sources.shift();
     for (let p in current) {
@@ -40,6 +42,29 @@ export function extend(dest) {
 
 export function clone(obj) {
   return extend({}, obj);
+}
+
+export function deepExtend(dest) {
+  if (typeof dest !== 'object' || !dest) {
+    return dest;
+  }
+  const sources = sliceArray.call(arguments, 1);
+  while (sources.length) {
+    const current = sources.shift();
+    if (isArray(dest)) {
+      if (isArray(current)) {
+        for (let i = 0; i < dest.length; ++i) {
+          deepExtend(dest[i], current[i]);
+        }
+      } else {
+        // dest = 
+      }
+    } else if (isPlainObject(dest)) {
+      // 注意可能无限递归
+    } else {
+    }
+  }
+  return dest;
 }
 
 export function isFunction (obj) {

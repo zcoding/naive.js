@@ -1,5 +1,5 @@
 import { setAttr, removeAttr, removeClass } from './dom';
-import { isArray } from './utils';
+import { isArray, clone } from './utils';
 import klass from './directives/class';
 import show from './directives/show';
 import style from './directives/style';
@@ -41,14 +41,14 @@ export function bindDirective (directive, value, element, context) {
       if (element.type === 'radio') {
         attachEvent(element, 'change', function handleChange(event) {
           const selectValue = event.currentTarget.value;
-          const currentState = context.state;
+          const currentState = clone(context.state);
           setObjectFromPath(currentState, value, selectValue);
           context.setState(currentState);
         });
       } else if (element.type === 'checkbox') {
         attachEvent(element, 'change', function handleChange() {
           const selectValue = event.currentTarget.value;
-          const currentState = context.state;
+          const currentState = clone(context.state);
           const preValue = getObjectFromPath(currentState, value);
           if (event.currentTarget.checked) {
             if (preValue.indexOf(selectValue) === -1) {
@@ -69,7 +69,7 @@ export function bindDirective (directive, value, element, context) {
       } else if (element.tagName === 'SELECT') {
         attachEvent(element, 'change', function handleInput () {
           // 通过 path 设置 state
-          const currentState = context.state;
+          const currentState = clone(context.state);
           if (element.multiple) {
             const options = element.options;
             const newValue = [];
@@ -88,7 +88,7 @@ export function bindDirective (directive, value, element, context) {
       } else {
         attachEvent(element, 'input', function handleInput () {
           // 通过 path 设置 state
-          const currentState = context.state;
+          const currentState = clone(context.state);
           setObjectFromPath(currentState, value, element.value);
           context.setState(currentState);
         });

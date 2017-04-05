@@ -19,7 +19,7 @@ export default function VNode (tagName, props, children, key) {
     if (isArray(child)) {
       childNodes = childNodes.concat(h.call(this, child));
     } else {
-      if (child) {
+      if (child !== false) {
         childNodes.push(h.call(this, child));
       }
     }
@@ -159,37 +159,6 @@ function parseExpression (exp, data) {
   }
 }
 
-export function bindEvent (eventName, exp, element, context) {
-  let handlerFunc;
-  if (isFunction(exp)) {
-    handlerFunc = exp;
-  } else {
-    const matches = matchExpression(exp);
-    if (matches) {
-      const methodName = matches[1];
-      handlerFunc = function (evt) {
-        const args = parseArgumentList(matches[2]);
-        const _args = [];
-        for (let i = 0; i < args.length; ++i) {
-          if (args[i].type === 'string') {
-            _args.push(args[i].value);
-          } else if (args[i].value === '$event') {
-            _args.push(evt);
-          } else {
-            _args.push(parseExpression(args[i].value, this.state));
-          }
-        }
-        this[methodName].apply(this, _args);
-      };
-    } else {
-      handlerFunc = context[exp];
-    }
-  }
-  attachEvent(element, eventName, function handler(evt) {
-    return handlerFunc.call(context, evt);
-  });
-}
-
 VNode.prototype.render = function renderVNodeToElement(context) {
   const element = createElement(this.tagName);
   const props = this.props;
@@ -203,8 +172,8 @@ VNode.prototype.render = function renderVNodeToElement(context) {
         handleDirective(p.slice(1), props[p], element, context);
       } else if (/^@/.test(p)) {
         const eventName = p.slice(1);
-        const exp = props[p];
-        bindEvent(eventName, exp, element, context);
+        const handler = props[p];
+        attachEvent(element, eventName, handler);
       } else {
         setAttr(element, p, props[p]);
       }
