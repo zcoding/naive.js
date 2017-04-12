@@ -7,6 +7,8 @@ import model from './directives/model';
 import { attachEvent } from './event';
 import { getObjectFromPath, setObjectFromPath } from './parser';
 
+const HtmlBooleanAttributes = ['disabled', 'checked', 'selected'];
+
 export function handleDirective (directive, value, element, context) {
   switch (directive) {
     case 'show':
@@ -22,7 +24,7 @@ export function handleDirective (directive, value, element, context) {
       model(value, element, context);
       break;
     default:
-      if (directive === 'disabled' || directive === 'checked') {
+      if (HtmlBooleanAttributes.indexOf(directive) !== -1) {
         if (value) {
           setAttr(element, directive, directive);
         } else {

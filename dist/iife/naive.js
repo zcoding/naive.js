@@ -517,6 +517,8 @@ function attachEvent(el, eventName, handler) {
   }
 }
 
+var HtmlBooleanAttributes = ['disabled', 'checked', 'selected'];
+
 function handleDirective(directive, value, element, context) {
   switch (directive) {
     case 'show':
@@ -532,7 +534,7 @@ function handleDirective(directive, value, element, context) {
       model(value, element, context);
       break;
     default:
-      if (directive === 'disabled' || directive === 'checked') {
+      if (HtmlBooleanAttributes.indexOf(directive) !== -1) {
         if (value) {
           setAttr(element, directive, directive);
         } else {
