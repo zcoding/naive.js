@@ -1493,20 +1493,34 @@ function Naive(options) {
       condition = !!condition;
       return condition ? h(options) : condition;
     },
-    "each": function each(list, createItem) {
+    "each": function each(list, iteratorCount, createItem) {
       var nodes = [];
       if (isArray(list)) {
         for (var i = 0; i < list.length; ++i) {
           var item = list[i];
-          var key = isPlainObject(item) && 'id' in item ? item['id'] : i;
-          nodes.push(h(createItem.call(context, item, i, key)));
+          var _itemUid = isPlainObject(item) && 'id' in item ? item['id'] : i;
+          var params = [item, _itemUid];
+          if (iteratorCount === 2) {
+            params = [item, i, _itemUid];
+          } else if (iteratorCount === 3) {
+            params = [item, i, i, _itemUid];
+          }
+          nodes.push(h(createItem.apply(context, params)));
         }
       } else {
+        var idx = 0;
         for (var _p in list) {
           if (list.hasOwnProperty(_p)) {
             var _item = list[_p];
-            var _key = isPlainObject(_item) && 'id' in _item ? _item['id'] : _p;
-            nodes.push(h(createItem.call(context, _item, _p, _key)));
+            var _itemUid2 = isPlainObject(_item) && 'id' in _item ? _item['id'] : _p;
+            var _params = [_item, _itemUid2];
+            if (iteratorCount === 2) {
+              _params = [_item, _p, _itemUid2];
+            } else if (iteratorCount === 3) {
+              _params = [_item, _p, idx, _itemUid2];
+            }
+            nodes.push(h(createItem.apply(context, _params)));
+            idx++;
           }
         }
       }

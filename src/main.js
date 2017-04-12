@@ -60,20 +60,34 @@ export default function Naive (options) {
       condition = !!condition;
       return condition ? h(options) : condition;
     },
-    "each": function (list, createItem) {
+    "each": function (list, iteratorCount, createItem) {
       const nodes = [];
       if (isArray(list)) {
         for (let i = 0; i < list.length; ++i) {
           const item = list[i];
-          const key = isPlainObject(item) && 'id' in item ? item['id'] : i;
-          nodes.push(h(createItem.call(context, item, i, key)));
+          const _itemUid = isPlainObject(item) && 'id' in item ? item['id'] : i;
+          let params = [item, _itemUid];
+          if (iteratorCount === 2) {
+            params = [item, i, _itemUid];
+          } else if (iteratorCount === 3) {
+            params = [item, i, i, _itemUid];
+          }
+          nodes.push(h(createItem.apply(context, params)));
         }
       } else {
+        let idx = 0;
         for (let p in list) {
           if (list.hasOwnProperty(p)) {
             const item = list[p];
-            const key = isPlainObject(item) && 'id' in item ? item['id'] : p;
-            nodes.push(h(createItem.call(context, item, p, key)));
+            const _itemUid = isPlainObject(item) && 'id' in item ? item['id'] : p;
+            let params = [item, _itemUid];
+            if (iteratorCount === 2) {
+              params = [item, p, _itemUid];
+            } else if (iteratorCount === 3) {
+              params = [item, p, idx, _itemUid];
+            }
+            nodes.push(h(createItem.apply(context, params)));
+            idx++;
           }
         }
       }
