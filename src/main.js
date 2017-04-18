@@ -236,6 +236,7 @@ prtt.unmount = function unmount () {
   if (!this.$root) {
     return this;
   }
+  this._callHooks('beforeUnmount');
   removeNode(this.$root);
   this._callHooks('unmounted');
 };
