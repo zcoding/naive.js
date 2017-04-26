@@ -1,4 +1,4 @@
-import babel from 'rollup-plugin-babel';
+import babel from 'rollup-plugin-babel'
 
 export default {
   entry: 'src/main.js',
@@ -6,15 +6,21 @@ export default {
   plugins: [
     babel({
       exclude: 'node_modules/**',
-      presets: ['es2015-rollup']
+      presets: [
+        [
+          'es2015',
+          {
+            'modules': false
+          }
+        ]
+      ],
+      'plugins': [
+        'external-helpers'
+      ],
+      babelrc: false
     })
   ],
   targets: [
-    {
-      format: 'amd',
-      moduleId: 'naive',
-      dest: 'dist/amd/naive.js'
-    },
     {
       format: 'es',
       dest: 'dist/es/naive.js'
@@ -22,11 +28,6 @@ export default {
     {
       format: 'cjs',
       dest: 'dist/cjs/naive.js'
-    },
-    {
-      format: 'iife',
-      moduleName: 'Naive',
-      dest: 'dist/iife/naive.js'
     }
   ]
-};
+}

@@ -21,23 +21,44 @@ export function toArray (obj) {
 }
 
 export function isUndefined (obj) {
-  return typeof obj === 'undefined';
+  return void 0 === obj
 }
 
 export function noop () {}
 
+function isObject(obj) {
+  return 'object' === typeof obj
+}
+
 export function extend(dest) {
-  if (typeof dest !== 'object' || !dest) {
-    return dest;
-  }
-  const sources = sliceArray.call(arguments, 1);
-  while (sources.length) {
-    const current = sources.shift();
-    for (let p in current) {
-      dest[p] = current[p]
+  const sources = sliceArray.call(arguments, 1)
+  for (let i = 0; i < sources.length; ++i) {
+    const src = sources[i]
+    if (!isObject(src)) {
+      if (isObject(dest)) {
+        return dest
+      } else {
+        dest = src
+      }
+    } else if (!isObject(dest)) {
+      if (src === null) {
+        return dest
+      } else {
+        dest = extend({}, src)
+      }
+    } else {
+      for (let p in src) {
+        if (src.hasOwnProperty(p)) {
+          if (isObject(src[p])) {
+            dest[p] = extend(dest[p] || {}, src[p])
+          } else {
+            dest[p] = src[p]
+          }
+        }
+      }
     }
   }
-  return dest;
+  return dest
 }
 
 export function clone(obj) {

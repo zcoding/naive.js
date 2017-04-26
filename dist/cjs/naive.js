@@ -25,20 +25,41 @@ function toArray$$1(obj) {
 }
 
 function isUndefined(obj) {
-  return typeof obj === 'undefined';
+  return void 0 === obj;
 }
 
 
 
+function isObject(obj) {
+  return 'object' === (typeof obj === 'undefined' ? 'undefined' : _typeof(obj));
+}
+
 function extend(dest) {
-  if ((typeof dest === 'undefined' ? 'undefined' : _typeof(dest)) !== 'object' || !dest) {
-    return dest;
-  }
   var sources = sliceArray.call(arguments, 1);
-  while (sources.length) {
-    var current = sources.shift();
-    for (var p in current) {
-      dest[p] = current[p];
+  for (var i = 0; i < sources.length; ++i) {
+    var src = sources[i];
+    if (!isObject(src)) {
+      if (isObject(dest)) {
+        return dest;
+      } else {
+        dest = src;
+      }
+    } else if (!isObject(dest)) {
+      if (src === null) {
+        return dest;
+      } else {
+        dest = extend({}, src);
+      }
+    } else {
+      for (var p in src) {
+        if (src.hasOwnProperty(p)) {
+          if (isObject(src[p])) {
+            dest[p] = extend(dest[p] || {}, src[p]);
+          } else {
+            dest[p] = src[p];
+          }
+        }
+      }
     }
   }
   return dest;
@@ -1667,6 +1688,7 @@ prtt.unmount = function unmount() {
   if (!this.$root) {
     return this;
   }
+  this._callHooks('beforeUnmount');
   removeNode(this.$root);
   this._callHooks('unmounted');
 };
