@@ -1,4 +1,4 @@
-import { extend } from '../../src/utils'
+import { extend } from '../../lib/utils'
 
 describe('utils', function() {
 
