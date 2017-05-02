@@ -3,7 +3,6 @@
   "version": "0.0.1",
   "description": "",
   "main": "dist/cjs/naive.js",
-  "jsnext:main": "index.js",
   "module": "dist/es/naive.js",
   "scripts": {
     "test": "jasmine",

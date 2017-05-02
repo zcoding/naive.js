@@ -14,8 +14,8 @@ function warn(message) {
 
 
 
-var isArray = Array.isArray ? Array.isArray : function isArray(obj) {
-  return Object.prototype.toString.call(obj) === '[object Array]';
+var isArray = Array.isArray || function isArray(arr) {
+  return Object.prototype.toString.call(arr) === '[obejct Array]';
 };
 
 function toArray$$1(obj) {
@@ -32,54 +32,99 @@ function isObject(obj) {
   return 'object' === (typeof obj === 'undefined' ? 'undefined' : _typeof(obj));
 }
 
-function extend(dest) {
-  var sources = sliceArray.call(arguments, 1);
-  for (var i = 0; i < sources.length; ++i) {
-    var src = sources[i];
-    if (!isObject(src)) {
-      if (isObject(dest)) {
-        return dest;
-      } else {
-        dest = src;
-      }
-    } else if (!isObject(dest)) {
-      if (src === null) {
-        return dest;
-      } else {
-        dest = extend({}, src);
-      }
-    } else {
-      for (var p in src) {
-        if (src.hasOwnProperty(p)) {
-          if (isObject(src[p])) {
-            dest[p] = extend(dest[p] || {}, src[p]);
-          } else {
-            dest[p] = src[p];
-          }
-        }
-      }
-    }
-  }
-  return dest;
-}
-
 function clone(obj) {
-  return extend({}, obj);
-}
-
-
-
-function isFunction(obj) {
-  return typeof obj === 'function';
-}
-
-function isPlainObject(obj) {
-  return obj != null && (typeof obj === 'undefined' ? 'undefined' : _typeof(obj)) === 'object' && !isArray(obj) && Object.prototype.toString.call(obj) === '[object Object]';
+  return deepExtend({}, obj);
 }
 
 
 
  // asap async
+
+
+// IE8
+function isFunction(obj) {
+  return 'function' === typeof obj;
+}
+
+function isString(obj) {
+  return 'string' === typeof obj;
+}
+
+function plainObject() {
+  return {};
+}
+
+function hasOwnProp() {
+  return plainObject().hasOwnProperty;
+}
+
+// IE8+
+function isPlainObject(obj) {
+  if (!obj || Object.prototype.toString.call(obj) !== '[object Object]') {
+    return false;
+  }
+
+  var proto = Object.getPrototypeOf(obj);
+
+  if (!proto) {
+    return true;
+  }
+
+  var Ctor = hasOwnProp.call(proto, 'constructor') && proto.constructor;
+  return typeof Ctor === 'function' && hasOwnProp.toString.call(Ctor) === hasOwnProp.toString.call(Object);
+}
+
+// IE8+
+function deepExtend() {
+  var options, name, src, copy, copyIsArray, clone;
+  var target = arguments[0] || {};
+  var length = arguments.length;
+
+  if (!isObject(target) && !isFunction(target)) {
+    target = {};
+  }
+
+  for (var i = 1; i < length; i++) {
+    if ((options = arguments[i]) != null) {
+
+      if (isString(options)) {
+        continue;
+      }
+
+      for (name in options) {
+        src = target[name];
+        copy = options[name];
+
+        // 防止循环引用
+        if (target === copy) {
+          continue;
+        }
+
+        // Recurse if we're merging plain objects or arrays
+        if (copy && (isPlainObject(copy) || (copyIsArray = isArray(copy)))) {
+
+          if (copyIsArray) {
+            copyIsArray = false;
+            clone = src && isArray(src) ? src : [];
+          } else {
+            clone = src && isPlainObject(src) ? src : {};
+          }
+
+          // Never move original objects, clone them
+          target[name] = deepExtend(clone, copy);
+          target[name] = deepExtend(clone, copy);
+
+          // Don't bring in undefined values
+        } else if (copy !== undefined) {
+          target[name] = copy;
+        }
+      }
+    }
+  }
+
+  // Return the modified object
+  return target;
+}
 
 /**
  * 获取元素
@@ -89,8 +134,8 @@ function isPlainObject(obj) {
  * @param {String} selector
  */
 function getElement(selector) {
-  var isString = typeof selector === 'string';
-  if (isString) {
+  var isString$$1 = typeof selector === 'string';
+  if (isString$$1) {
     if (selector[0] === '#') {
       return document.getElementById(selector.slice(1));
     } else {
@@ -1506,7 +1551,7 @@ function Naive(options) {
       }
     }
   }
-  extend(this.state, combineProps);
+  deepExtend(this.state, combineProps);
   var context = this;
   var _vdomRender = options.render || emptyRender;
   var _templateHelpers = {
@@ -1574,7 +1619,7 @@ function Naive(options) {
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
     if (!key || !context._components[key]) {
-      var options = extend({}, componentDefine, { props: props, key: key });
+      var options = deepExtend({}, componentDefine, { props: props, key: key });
       var newChild = new Naive(options);
       context._components[key] = newChild;
     } else {
@@ -1591,13 +1636,27 @@ prtt.render = function render() {
   return this.$root;
 };
 
+function simpleExtend(dest, src) {
+  if (!isPlainObject(src)) {
+    return dest;
+  }
+  for (var p in dest) {
+    if (dest.hasOwnProperty(p)) {
+      if (!isUndefined(src[p])) {
+        dest[p] = src[p];
+      }
+    }
+  }
+  return dest;
+}
+
 prtt.setState = function setState(state) {
   // console.count('setState');
   // @TODO 不能使用同一个 state
   if (state === this.state) {
     warn('同一个 state');
   }
-  extend(this.state, state);
+  simpleExtend(this.state, state);
   enqueueRender(this);
   return this;
 };
@@ -1642,7 +1701,7 @@ function updateProps(component, props) {
       }
     }
   }
-  extend(component.state, combineProps);
+  deepExtend(component.state, combineProps);
 }
 
 prtt._init = function _init(options) {
