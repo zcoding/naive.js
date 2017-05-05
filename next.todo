@@ -31,12 +31,18 @@ transition:
  ☐ <transition></transition> 组件
 
 勾子:
- ☐ mounted
- ☐ destroyed
- ☐ beforeDestroy
+ ✔ mounted @done (17-05-04 21:29)
+ ☐ unmounted
+ ☐ beforeUnmount
 
 事件绑定:
  ☐ 绑定对象问题
 
 列表项的键值:
  ☐ 通过 :key 指定
+
+删除节点的问题:
+ ☐ 如果被删除的节点内含有组件，删除节点时无法触发组件的 unmount
+
+n-if 问题:
+ ☐ 组件 n-if 无效？

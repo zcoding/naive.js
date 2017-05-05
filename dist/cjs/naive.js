@@ -128,13 +128,6 @@ function deepExtend() {
   return target;
 }
 
-/**
- * 获取元素
- *
- * IE 8 只支持到 CSS2 选择器
- *
- * @param {String} selector
- */
 function getElement(selector) {
   var isString$$1 = typeof selector === 'string';
   if (isString$$1) {
@@ -266,7 +259,6 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -435,15 +427,6 @@ function restore(str, i) {
  */
 
 
-/**
- * parseExpression 解析表达式
- * 对于 `b-for` 指令，需要特殊处理，其它指令只要返回表达式执行函数即可
- *
- * @param {String} name 指令名称
- * @param {String} expression 表达式字符串
- * @param {String} 作用域限制
- * @return {{raw:String, expression:Function}}
- */
 
 
 /**
@@ -755,6 +738,7 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
+// 检查是否指令属性
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
@@ -797,7 +781,6 @@ function isVComponent(node) {
   return node instanceof Naive;
 }
 
-// 分别找到有 key 的元素位置和没有 key 的元素的位置
 function keyIndex(list) {
   var keys = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
@@ -930,6 +913,9 @@ function reorder(pList, nList) {
         // 如果当前节点的位置不对，要进行移动
         if (simulateItem && simulateItem.key) {
           if (nKeys[simulateItem.key] !== k + 1) {
+            if (isVComponent(simulateItem)) {
+              debugger;
+            }
             removes.push(remove(simulateList, simulateIndex, simulateItem.key)); // 先移除当前位置的节点
             simulateItem = simulateList[simulateIndex]; // 删除后，该位置对应的是下一个节点
             // 然后在当前位置插入目标节点
@@ -1134,6 +1120,7 @@ function doApplyPatches(context, domNode, patches) {
         break;
       case PATCH.REORDER:
         // 子节点重新排序
+        // @TODO 这里也有移除组件的操作
         patchReorder(context, domNode, patch.moves);
         break;
       case PATCH.INSERT:
@@ -1233,6 +1220,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1270,7 +1258,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1559,7 +1546,7 @@ function Naive(options) {
   var _templateHelpers = {
     "if": function _if(condition, options) {
       condition = !!condition;
-      return condition ? h(options) : condition;
+      return condition ? h.call(context, options) : condition;
     },
     "each": function each(list, iteratorCount, createItem) {
       var nodes = [];
