@@ -1,28 +1,46 @@
-新增:
- ☐ store
+模板指令:
+  ☐ n-if
+  ☐ n-else-if
+  ☐ n-else
+  ☐ n-for
 
-模板指令增强:
- ☐ n-else-if
- ☐ n-if 必须匹配同等级节点的 n-else 或者 n-else-if
-  
-遍历语法增强:
- ✔ 使用显式的 index 和 key 别名 @done (17-04-12 14:30)
- ✔ 支持 in 或者 of @done (17-04-12 14:30)
- 对于数组支持:
-  ✔ n-each="item in items" @done (17-04-12 14:30)
-  ✔ n-each="(item, index) in items" @done (17-04-12 14:30)
- 对于对象支持:
-  ✔ n-each="val in object" @done (17-04-12 14:30)
-  ✔ n-each="(val, key) in object" @done (17-04-12 14:30)
-  ✔ n-each="(val, key, index) in object" @done (17-04-12 14:30)
+n-for:
+  ☐ 必须指定 :key
+  ☐ n-for="item in items"
+  ☐ n-for="(item, index) in items"
+  ☐ n-for="value in object"
+  ☐ n-for="(value, key) in object"
+  ☐ n-for="(value, key, index) in object"
 
-Modifiers:
- ☐ .stop
- ☐ .prevent
- ☐ .once
- ☐ .number
+非模板指令:
+  ☐ n-text
+  ☐ n-show
+  ☐ n-on
+  ☐ n-bind
+  ☐ n-model
+  ✘ n-html @cancelled(2017-05-07 00:52) @project(非模板指令)
 
-属性:
+n-on:
+  ☐ 简写 `@`
+  ☐ 修饰符 .stop
+  ☐ 修饰符 .prevent
+  ☐ 修饰符 .once
+  ☐ 修饰符 .number
+
+n-bind:
+  ☐ 简写 `:`
+
+生命周期勾子:
+  ☐ created
+  ☐ beforeMount
+  ☐ mounted
+  ☐ updated
+  ✘ beforeUnmount @cancelled(2017-05-07 01:00) @project(生命周期勾子)
+  ✘ unmounted @cancelled(2017-05-07 01:00) @project(生命周期勾子)
+  ☐ beforeDestroy
+  ☐ destroyed
+
+布尔型属性:
  ☐ disabled, checked, selected 使用属性访问，不使用 setAttribute 和 removeAttribute
 
 函数式组件:
@@ -30,19 +48,8 @@ Modifiers:
 transition:
  ☐ <transition></transition> 组件
 
-勾子:
- ✔ mounted @done (17-05-04 21:29)
- ☐ unmounted
- ☐ beforeUnmount
-
-事件绑定:
- ☐ 绑定对象问题
-
-列表项的键值:
- ☐ 通过 :key 指定
-
 删除节点的问题:
  ☐ 如果被删除的节点内含有组件，删除节点时无法触发组件的 unmount
 
-n-if 问题:
- ☐ 组件 n-if 无效？
+模板指令问题:
+ ☐ 模板指令内生成组件时，无法传递 prop ?
