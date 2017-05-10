@@ -140,7 +140,6 @@ function simpleExtend(dest, src) {
   return dest;
 }
 
-// IE 8 只支持到 CSS2 选择器
 function getElement(selector) {
   if (isString(selector)) {
     if (selector[0] === '#') {
@@ -271,12 +270,11 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-// virtual text node
 function VText(text) {
   this.data = text;
 }
 
-VText.prototype.render = function renderVTextToTextNode() {
+VText.prototype.$render = function renderVTextToTextNode() {
   return createTextNode(this.data);
 };
 
@@ -440,15 +438,6 @@ function restore(str, i) {
  */
 
 
-/**
- * parseExpression 解析表达式
- * 对于 `b-for` 指令，需要特殊处理，其它指令只要返回表达式执行函数即可
- *
- * @param {String} name 指令名称
- * @param {String} expression 表达式字符串
- * @param {String} 作用域限制
- * @return {{raw:String, expression:Function}}
- */
 
 
 /**
@@ -728,8 +717,44 @@ function NaiveException(message) {
   this.message = message;
 }
 
-// create VNode, VText, VComponent
-// @TODO 需要增强参数
+function addHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks) {
+    callbacks = [];
+  }
+  if (isArray(callback)) {
+    callbacks = callbacks.concat(callback);
+  } else {
+    callbacks.push(callback);
+  }
+  this._hooks[hookName] = callbacks;
+}
+
+function removeHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks || callbacks.length === 0) {
+    return this;
+  }
+  if (!callback) {
+    callbacks.splice(0, callbacks.length);
+  } else {
+    for (var i = 0; i < callbacks.length; ++i) {
+      if (callbacks[i] === callback) {
+        callbacks.splice(i, 1);
+        break;
+      }
+    }
+  }
+  return this;
+}
+
+function callHooks(hookName, params) {
+  var _callbacks = this._hooks[hookName] || [];
+  for (var i = 0; i < _callbacks.length; ++i) {
+    _callbacks[i].apply(this, params);
+  }
+}
+
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -783,7 +808,8 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
-VNode.prototype.render = function renderVNodeToElement(context) {
+// 检查是否指令属性
+VNode.prototype.$render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
   var nodeContext = this;
@@ -805,14 +831,13 @@ VNode.prototype.render = function renderVNodeToElement(context) {
   }
   for (var i = 0; i < this.children.length; ++i) {
     var child = this.children[i];
-    var _isVComponent = isVComponent(child);
-    if (_isVComponent) {
-      // 如果是组件，先 update props
-      child.$update();
-    }
-    appendChild(child.render(context), element);
-    if (_isVComponent) {
-      child._callHooks('mounted');
+    if (isVComponent(child)) {
+      callHooks.call(child, 'beforeMount');
+      var $root = child.$render();
+      appendChild($root, element);
+      callHooks.call(child, 'mounted', [$root]);
+    } else {
+      appendChild(child.$render(context), element);
     }
   }
   return element;
@@ -830,7 +855,6 @@ function isVComponent(node) {
   return node instanceof Naive;
 }
 
-// 分别找到有 key 的元素位置和没有 key 的元素的位置
 function keyIndex(list) {
   var keys = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
@@ -1137,44 +1161,6 @@ function indexInRange(indices, min, max) {
   return result;
 }
 
-function addHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks) {
-    callbacks = [];
-  }
-  if (isArray(callback)) {
-    callbacks = callbacks.concat(callback);
-  } else {
-    callbacks.push(callback);
-  }
-  this._hooks[hookName] = callbacks;
-}
-
-function removeHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks || callbacks.length === 0) {
-    return this;
-  }
-  if (!callback) {
-    callbacks.splice(0, callbacks.length);
-  } else {
-    for (var i = 0; i < callbacks.length; ++i) {
-      if (callbacks[i] === callback) {
-        callbacks.splice(i, 1);
-        break;
-      }
-    }
-  }
-  return this;
-}
-
-function callHooks(hookName, params) {
-  var _callbacks = this._hooks[hookName] || [];
-  for (var i = 0; i < _callbacks.length; ++i) {
-    _callbacks[i].apply(this, params);
-  }
-}
-
 var PATCH = {
   REPLACE: 0, // 替换节点
   INSERT: 1, // 插入
@@ -1211,7 +1197,7 @@ function doApplyPatches(context, domNode, patches) {
     switch (patch.type) {
       case PATCH.REPLACE:
         // 替换元素节点
-        replaceNode(patch.node.render(context), domNode);
+        replaceNode(patch.node.$render(context), domNode);
         break;
       case PATCH.PROPS:
         // 属性修改
@@ -1230,13 +1216,13 @@ function doApplyPatches(context, domNode, patches) {
           // 插入组件
           var childComponent = patch.node;
           callHooks.call(childComponent, 'beforeMount');
-          var $root = childComponent.render();
+          var $root = childComponent.$render();
           domNode.appendChild($root);
           callHooks.call(childComponent, 'mounted', [$root]);
         } else {
           // 插入节点
           if (domNode) {
-            domNode.appendChild(patch.node.render(context));
+            domNode.appendChild(patch.node.$render(context));
           } else {
             // 如果节点不存在了，不需要执行插入操作
           }
@@ -1308,6 +1294,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1345,7 +1332,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1592,6 +1578,7 @@ function Naive(options) {
     }
   }
   deepExtend(this.state, combineProps);
+  callHooks.call(this, 'beforeCreate');
   var context = this;
   var _vdomRender = options.render || emptyRender;
   var _templateHelpers = {
@@ -1638,7 +1625,7 @@ function Naive(options) {
     }, _templateHelpers);
     return vdom;
   };
-  this.$root = null; // 第一次 render 之后才会生成 $root
+  this.$root = null; // 第一次 $render 之后才会生成 $root
   this.components = {}; // 组件描述对象列表
   this._components = {}; // 组件实例映射
   var componentsOptions = options.components || {};
@@ -1652,7 +1639,7 @@ function Naive(options) {
   }
   this.parent = options.parent || null;
   this._init(options);
-  this._callHooks('created');
+  callHooks.call(this, 'created');
 }
 
 function createComponentCreator(context, componentDefine) {
@@ -1699,11 +1686,13 @@ prtt.setState = function setState(state) {
   return this;
 };
 
-// 更新视图
+// update view: state => vdom => diff => patches => dom
 prtt.$update = function $update() {
   if (!this.$root) {
     return this;
+    // throw new NaiveException('VComponent must be mounted before update')
   }
+  // console.log(this)
   callHooks.call(this, 'beforeUpdate', [clone(this.state)]);
   var preVdom = this.vdom;
   this.vdom = this.vdomRender();
@@ -1724,20 +1713,21 @@ prtt.$nextTick = function nextTick$$1(callback) {
   nextTick(callback);
 };
 
-// vdom => dom
-prtt.render = function render() {
+// render view: state => vdom => dom
+prtt.$render = function $render() {
   this.vdom = this.vdomRender();
-  this.$root = this.vdom.render(this);
+  this.$root = this.vdom.$render(this);
   return this.$root;
 };
 
+// mount
 prtt.$mount = function $mount(selector) {
   var mountPoint = isString(selector) ? getElement(selector) : selector;
   if (!mountPoint) {
     throw new NaiveException('Mount point not found');
   }
   callHooks.call(this, 'beforeMount');
-  var $root = this.render();
+  var $root = this.$render();
   replaceNode($root, mountPoint);
   callHooks.call(this, 'mounted', [$root]);
 };
@@ -1771,7 +1761,5 @@ prtt.$destroy = function $destroy() {
     }
   }
 };
-
-prtt._callHooks = callHooks;
 
 export default Naive;

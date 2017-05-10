@@ -71,11 +71,17 @@ string iteration:
 
 ### `$mount`
 
+### `$destroy`
+
+### `$nextTick`
+
 ## Lifecycle
 
++ `beforeCreate`
 + `created`
 + `beforeMount`
 + `mounted`
++ `beforeUpdate`
 + `updated`
 + `beforeDestroy`
 + `destroyed`
