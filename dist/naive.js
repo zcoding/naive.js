@@ -1,5 +1,3 @@
-'use strict';
-
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) {
   return typeof obj;
 } : function (obj) {
@@ -142,6 +140,7 @@ function simpleExtend(dest, src) {
   return dest;
 }
 
+// IE 8 只支持到 CSS2 选择器
 function getElement(selector) {
   if (isString(selector)) {
     if (selector[0] === '#') {
@@ -272,6 +271,7 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
+// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -728,6 +728,8 @@ function NaiveException(message) {
   this.message = message;
 }
 
+// create VNode, VText, VComponent
+// @TODO 需要增强参数
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -781,7 +783,6 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
-// 检查是否指令属性
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
@@ -829,6 +830,7 @@ function isVComponent(node) {
   return node instanceof Naive;
 }
 
+// 分别找到有 key 的元素位置和没有 key 的元素的位置
 function keyIndex(list) {
   var keys = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
@@ -1306,7 +1308,6 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
-// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1344,6 +1345,7 @@ function patchProps(domNode, patch, context) {
   }
 }
 
+// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1722,6 +1724,7 @@ prtt.$nextTick = function nextTick$$1(callback) {
   nextTick(callback);
 };
 
+// vdom => dom
 prtt.render = function render() {
   this.vdom = this.vdomRender();
   this.$root = this.vdom.render(this);
@@ -1771,5 +1774,4 @@ prtt.$destroy = function $destroy() {
 
 prtt._callHooks = callHooks;
 
-module.exports = Naive;
-//# sourceMappingURL=naive.js.map
+export default Naive;

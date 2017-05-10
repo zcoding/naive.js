@@ -1,9 +1,9 @@
 {
   "name": "naive.js",
-  "version": "0.0.1",
-  "description": "",
-  "main": "dist/cjs/naive.js",
-  "module": "dist/es/naive.js",
+  "version": "0.1.0",
+  "description": "spa-vdom",
+  "main": "dist/naive.js",
+  "module": "dist/naive.js",
   "scripts": {
     "test": "jasmine",
     "dev": "rollup --watch --config scripts/rollup.build.js",

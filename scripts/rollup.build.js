@@ -2,7 +2,6 @@ import babel from 'rollup-plugin-babel'
 
 export default {
   entry: 'lib/main.js',
-  sourceMap: true,
   plugins: [
     babel({
       exclude: 'node_modules/**',
@@ -23,11 +22,7 @@ export default {
   targets: [
     {
       format: 'es',
-      dest: 'dist/es/naive.js'
-    },
-    {
-      format: 'cjs',
-      dest: 'dist/cjs/naive.js'
+      dest: 'dist/naive.js'
     }
   ]
 }
