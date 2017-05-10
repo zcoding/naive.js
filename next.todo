@@ -2,6 +2,9 @@
  ☐ disabled, checked, selected 使用属性访问，不使用 setAttribute 和 removeAttribute
 
 函数式组件:
+  ☐ <keep-alive></keep-alive> 组件
 
 模板指令问题:
  ☐ 模板指令内生成组件时，无法传递 prop ?
+
+_init 和 $mount 都调用了 vdomRender 导致重复生成 vdom
