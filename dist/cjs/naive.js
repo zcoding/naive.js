@@ -142,16 +142,8 @@ function simpleExtend(dest, src) {
   return dest;
 }
 
-/**
- * 获取元素
- *
- * IE 8 只支持到 CSS2 选择器
- *
- * @param {String} selector
- */
 function getElement(selector) {
-  var isString$$1 = typeof selector === 'string';
-  if (isString$$1) {
+  if (isString(selector)) {
     if (selector[0] === '#') {
       return document.getElementById(selector.slice(1));
     } else {
@@ -280,7 +272,6 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-// virtual text node
 function VText(text) {
   this.data = text;
 }
@@ -523,7 +514,7 @@ function parsePath(path) {
 
 function getObjectFromPath(data, path) {
   var props = parsePath(path);
-  var result = props.length > 0 ? data : undefined;
+  var result = props.length > 0 ? data : void 0;
   for (var i = 0; i < props.length; ++i) {
     result = result[props[i]];
     if (!result) {
@@ -737,8 +728,6 @@ function NaiveException(message) {
   this.message = message;
 }
 
-// create VNode, VText, VComponent
-// @TODO 需要增强参数
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -792,6 +781,7 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
+// 检查是否指令属性
 VNode.prototype.render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
@@ -839,7 +829,6 @@ function isVComponent(node) {
   return node instanceof Naive;
 }
 
-// 分别找到有 key 的元素位置和没有 key 的元素的位置
 function keyIndex(list) {
   var keys = {}; // 有 key 的节点位置
   var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
@@ -1146,6 +1135,44 @@ function indexInRange(indices, min, max) {
   return result;
 }
 
+function addHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks) {
+    callbacks = [];
+  }
+  if (isArray(callback)) {
+    callbacks = callbacks.concat(callback);
+  } else {
+    callbacks.push(callback);
+  }
+  this._hooks[hookName] = callbacks;
+}
+
+function removeHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks || callbacks.length === 0) {
+    return this;
+  }
+  if (!callback) {
+    callbacks.splice(0, callbacks.length);
+  } else {
+    for (var i = 0; i < callbacks.length; ++i) {
+      if (callbacks[i] === callback) {
+        callbacks.splice(i, 1);
+        break;
+      }
+    }
+  }
+  return this;
+}
+
+function callHooks(hookName, params) {
+  var _callbacks = this._hooks[hookName] || [];
+  for (var i = 0; i < _callbacks.length; ++i) {
+    _callbacks[i].apply(this, params);
+  }
+}
+
 var PATCH = {
   REPLACE: 0, // 替换节点
   INSERT: 1, // 插入
@@ -1166,7 +1193,7 @@ function ascending(a, b) {
 // 先删子节点，递归删除
 function doRemoveNode(domNode, target) {
   if (isVComponent(target)) {
-    target.$destroy();
+    target.$destroy(); // 注意已经 destroyed 下次要重新生成
   } else if (target.children) {
     for (var i = 0; i < target.children.length; ++i) {
       doRemoveNode(domNode.childNodes[i], target.children[i]);
@@ -1194,24 +1221,16 @@ function doApplyPatches(context, domNode, patches) {
         break;
       case PATCH.REORDER:
         // 子节点重新排序
-        // @TODO 这里也有移除组件的操作
         patchReorder(context, domNode, patch.moves);
         break;
       case PATCH.INSERT:
         if (isVComponent(patch.node)) {
           // 插入组件
-          // @TODO 重新插入组件的时候，子组件没有重新插入
-          // console.log('插入组件')
           var childComponent = patch.node;
-          if (childComponent.$root) {
-            // 如果组件已经有 $root 就 setState -> update
-            childComponent.$update();
-            domNode.appendChild(childComponent.$root);
-          } else {
-            // 否则直接 render
-            domNode.appendChild(childComponent.render(context));
-          }
-          childComponent._callHooks('mounted');
+          callHooks.call(childComponent, 'beforeMount');
+          var $root = childComponent.render();
+          domNode.appendChild($root);
+          callHooks.call(childComponent, 'mounted', [$root]);
         } else {
           // 插入节点
           if (domNode) {
@@ -1225,14 +1244,12 @@ function doApplyPatches(context, domNode, patches) {
         doRemoveNode(domNode, patch.node);
         break;
       case PATCH.COMPONENT:
-        // 可能是同一组件或不同组件，但肯定都是组件
         if (patch.pVdom.key === patch.nVdom.key) {
           patch.pVdom.$update();
         } else {
-          // ???
-          patch.nVdom.$update();
-          patch.nVdom.$mount(patch.pVdom.$root);
+          var _$root = patch.pVdom.$root;
           patch.pVdom.$destroy();
+          patch.nVdom.$mount(_$root);
         }
         break;
       default:
@@ -1259,6 +1276,7 @@ function applyPatch(context, domNode, patch) {
   }
 }
 
+// @TODO 这里如何处理组件？
 function patchReorder(context, domNode, moves) {
   var removes = moves.removes;
   var inserts = moves.inserts;
@@ -1288,6 +1306,7 @@ function isAttrDirective(attr) {
   return (/^@|n-|:/.test(attr)
   );
 }
+// 检查是否事件指令
 function patchProps(domNode, patch, context) {
   var setProps = patch.props.set;
   var removeProps = patch.props.remove;
@@ -1305,7 +1324,7 @@ function patchProps(domNode, patch, context) {
         }
       } else {
         // 普通属性
-        if (typeof patch.props[p] === 'undefined') {
+        if (isUndefined(patch.props[p])) {
           removeAttr(domNode, p);
         } else {
           setAttr(domNode, p, patch.props[p]);
@@ -1325,7 +1344,6 @@ function patchProps(domNode, patch, context) {
   }
 }
 
-// 快速比较两个对象是否“相等”
 function objectEquals(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1377,7 +1395,7 @@ function diffChildren(pChildren, nChildren, parentIndex, patches, parentPatches)
 
   var pLen = pChildren.length;
   var oLen = orderedList.length;
-  var len = pLen > oLen ? pLen : oLen; // const len = max(pLen, oLen);
+  var len = pLen > oLen ? pLen : oLen; // const len = max(pLen, oLen)
 
   var currentIndex = parentIndex;
   for (var i = 0; i < len; ++i) {
@@ -1472,44 +1490,6 @@ function diff(pVdom, nVdom) {
   return patch;
 }
 
-function addHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks) {
-    callbacks = [];
-  }
-  if (isArray(callback)) {
-    callbacks = callbacks.concat(callback);
-  } else {
-    callbacks.push(callback);
-  }
-  this._hooks[hookName] = callbacks;
-}
-
-function removeHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks || callbacks.length === 0) {
-    return this;
-  }
-  if (!callback) {
-    callbacks.splice(0, callbacks.length);
-  } else {
-    for (var i = 0; i < callbacks.length; ++i) {
-      if (callbacks[i] === callback) {
-        callbacks.splice(i, 1);
-        break;
-      }
-    }
-  }
-  return this;
-}
-
-function callHooks(hookName, params) {
-  var _callbacks = this._hooks[hookName] || [];
-  for (var i = 0; i < _callbacks.length; ++i) {
-    _callbacks[i].apply(this, params);
-  }
-}
-
 // 异步执行
 // 如果 Promise 可用，就用 Promise，否则用 setTimeout
 var resolved$1 = typeof Promise !== 'undefined' && Promise.resolve();
@@ -1580,6 +1560,7 @@ function Naive(options) {
   this.name = options.name || '';
   this.key = options.key || uuid();
   this._hooks = {};
+  this._keepAlive = false; // @TODO 使用 <keep-alive></keep-alive> 组件
   if (options.hasOwnProperty('state')) {
     if (!isFunction(options.state)) {
       throw new NaiveException('state should be [Function]');
@@ -1674,13 +1655,9 @@ function Naive(options) {
 
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
-    if (!key || !context._components[key]) {
-      var options = deepExtend({}, componentDefine, { props: props, key: key });
-      var newChild = new Naive(options);
-      context._components[key] = newChild;
-    } else {
-      updateProps(context._components[key], props);
-    }
+    var options = deepExtend({}, componentDefine, { props: props, key: key });
+    var newChild = new Naive(options);
+    context._components[key] = newChild;
     return context._components[key];
   };
 }
@@ -1745,24 +1722,6 @@ prtt.$nextTick = function nextTick$$1(callback) {
   nextTick(callback);
 };
 
-function updateProps(component, props) {
-  var combineProps = {};
-  if (props) {
-    for (var p in props) {
-      if (props.hasOwnProperty(p)) {
-        component.props[p] = props[p];
-        if (/^:/.test(p)) {
-          combineProps[p.slice(1)] = props[p];
-        } else {
-          combineProps[p] = String(props[p]);
-        }
-      }
-    }
-  }
-  deepExtend(component.state, combineProps);
-}
-
-// vdom => dom
 prtt.render = function render() {
   this.vdom = this.vdomRender();
   this.$root = this.vdom.render(this);
@@ -1799,17 +1758,15 @@ prtt.$destroy = function $destroy() {
     doDestroy(vdom.children[i]);
   }
   callHooks.call(this, 'beforeDestroy');
-  // removeNode(this.$root)
-  this.$root = null;
-  // 还要将对应的 vdom 删除
+  this.$root = null; // 释放 dom 节点
   // 销毁事件监听
+  callHooks.call(this, 'destroyed');
   // 销毁勾子回调
   for (var p in this._hooks) {
     if (this._hooks.hasOwnProperty(p)) {
       removeHook.call(this, p);
     }
   }
-  callHooks.call(this, 'destroyed');
 };
 
 prtt._callHooks = callHooks;
