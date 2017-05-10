@@ -126,6 +126,20 @@ function deepExtend() {
   return target;
 }
 
+function simpleExtend(dest, src) {
+  if (!isPlainObject(src)) {
+    return dest;
+  }
+  for (var p in dest) {
+    if (dest.hasOwnProperty(p)) {
+      if (!isUndefined(src[p])) {
+        dest[p] = src[p];
+      }
+    }
+  }
+  return dest;
+}
+
 /**
  * 获取元素
  *
@@ -540,35 +554,56 @@ function setObjectFromPath(data, path, value) {
   }
 }
 
-function model(value, element, context) {
-  var currentValue = getObjectFromPath(context.state, value);
-  if (element.type === 'radio') {
-    element.checked = currentValue === element.value;
-  } else if (element.type === 'checkbox') {
-    if (isArray(currentValue)) {
-      element.checked = currentValue.indexOf(element.value) !== -1;
-    } else {
-      element.checked = currentValue === element.value;
-    }
-  } else if (element.tagName === 'SELECT') {
-    if (element.multiple) {
-      var options = element.options;
-      for (var i = 0; i < options.length; ++i) {
-        if (currentValue.indexOf(options[i].value) !== -1) {
-          options[i].selected = true;
-        } else {
-          options[i].selected = false;
-        }
-      }
-    } else {
-      if (element.value !== currentValue) {
-        element.value = currentValue;
+function modelSelect(currentValue, element, context) {
+  if (element.multiple) {
+    var options = element.options;
+    for (var i = 0; i < options.length; ++i) {
+      if (currentValue.indexOf(options[i].value) !== -1) {
+        options[i].selected = true;
+      } else {
+        options[i].selected = false;
       }
     }
   } else {
     if (element.value !== currentValue) {
       element.value = currentValue;
     }
+  }
+}
+
+function modelRadio(currentValue, element, context) {
+  element.checked = currentValue === element.value;
+}
+
+function modelCheckbox(currentValue, element, context) {
+  if (isArray(currentValue)) {
+    element.checked = currentValue.indexOf(element.value) !== -1;
+  } else {
+    element.checked = currentValue === element.value;
+  }
+}
+
+function modelInput(currentValue, element, context) {
+  if (element.value !== currentValue) {
+    element.value = currentValue;
+  }
+}
+
+function model(value, element, context) {
+  var currentValue = getObjectFromPath(context.state, value);
+  var tag = element.tagName.toLowerCase();
+  var type = element.type;
+
+  if (tag === 'select') {
+    modelSelect(currentValue, element, context);
+  } else if (tag === 'input' && type === 'radio') {
+    modelRadio(currentValue, element, context);
+  } else if (tag === 'input' && type === 'checkbox') {
+    modelCheckbox(currentValue, element, context);
+  } else if (tag === 'textarea' || tag === 'input') {
+    modelInput(currentValue, element, context);
+  } else {
+    // not support
   }
 }
 
@@ -780,7 +815,7 @@ VNode.prototype.render = function renderVNodeToElement(context) {
     var _isVComponent = isVComponent(child);
     if (_isVComponent) {
       // 如果是组件，先 update props
-      child.update();
+      child.$update();
     }
     appendChild(child.render(context), element);
     if (_isVComponent) {
@@ -1125,20 +1160,15 @@ function ascending(a, b) {
 
 // 移除节点
 // 如果是 DOM 节点，调用 removeNode
-// 如果是组件节点，调用 unmount
+// 如果是组件节点，调用 $destroy
 // 先删子节点，递归删除
 function doRemoveNode(domNode, target) {
-  if (!target.children) {
-    if (isVComponent(target)) {
-      target.unmount();
-    } else {
-      removeNode(domNode);
+  if (isVComponent(target)) {
+    target.$destroy();
+  } else if (target.children) {
+    for (var i = 0; i < target.children.length; ++i) {
+      doRemoveNode(domNode.childNodes[i], target.children[i]);
     }
-    return;
-  }
-  for (var i = 0; i < target.children.length; ++i) {
-    var child = target.children[i];
-    doRemoveNode(domNode.childNodes[i], child);
   }
   removeNode(domNode);
 }
@@ -1168,11 +1198,12 @@ function doApplyPatches(context, domNode, patches) {
       case PATCH.INSERT:
         if (isVComponent(patch.node)) {
           // 插入组件
+          // @TODO 重新插入组件的时候，子组件没有重新插入
           // console.log('插入组件')
           var childComponent = patch.node;
           if (childComponent.$root) {
             // 如果组件已经有 $root 就 setState -> update
-            childComponent.update();
+            childComponent.$update();
             domNode.appendChild(childComponent.$root);
           } else {
             // 否则直接 render
@@ -1194,12 +1225,12 @@ function doApplyPatches(context, domNode, patches) {
       case PATCH.COMPONENT:
         // 可能是同一组件或不同组件，但肯定都是组件
         if (patch.pVdom.key === patch.nVdom.key) {
-          patch.pVdom.update();
+          patch.pVdom.$update();
         } else {
           // ???
-          patch.nVdom.update();
-          patch.nVdom.mount(patch.pVdom.$root);
-          patch.pVdom.unmount();
+          patch.nVdom.$update();
+          patch.nVdom.$mount(patch.pVdom.$root);
+          patch.pVdom.$destroy();
         }
         break;
       default:
@@ -1523,7 +1554,7 @@ function rerender() {
   renderCallbacks = [];
   while (p = list.pop()) {
     if (p._dirty) {
-      p.update();
+      p.$update();
     }
   }
   isDirty = false;
@@ -1532,23 +1563,14 @@ function rerender() {
 
 var componentId = 1;
 
-// 生成（重新生成） vdom 的时机:
-// 1. 初始化的时候
-// 2. update 的时候
-// 3. render 的时候
-
-// render 的时机:
-// 1. mount 的时候
-// 2. 父节点更新的时候
-
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
 // componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
 function uuid() {
   return '$naive-component-' + componentId++ + '-' + new Date().getTime();
 }
 
-function emptyRender() {
-  return null;
+function emptyRender(h$$1) {
+  return h$$1('');
 }
 
 function Naive(options) {
@@ -1556,15 +1578,15 @@ function Naive(options) {
   this.name = options.name || '';
   this.key = options.key || uuid();
   this._hooks = {};
-  if ('state' in options) {
+  if (options.hasOwnProperty('state')) {
     if (!isFunction(options.state)) {
-      throw new NaiveException('state 必须是 [Function]');
+      throw new NaiveException('state should be [Function]');
     }
     var _state = options.state();
     if (isPlainObject(_state)) {
       this.state = _state;
     } else {
-      throw new NaiveException('state 必须返回 [Plain Object]');
+      throw new NaiveException('state() must return [Plain Object]');
     }
   } else {
     this.state = {};
@@ -1589,8 +1611,7 @@ function Naive(options) {
   var _vdomRender = options.render || emptyRender;
   var _templateHelpers = {
     "if": function _if(condition, options) {
-      condition = !!condition;
-      return condition ? h.call(context, options) : condition;
+      return condition ? h.call(context, options) : false;
     },
     "each": function each(list, iteratorCount, createItem) {
       var nodes = [];
@@ -1664,33 +1685,33 @@ function createComponentCreator(context, componentDefine) {
 
 var prtt = Naive.prototype;
 
-// 根据 vdom 生成 dom
-// 这里不会更新 state
-prtt.render = function render() {
-  this.vdom = this.vdomRender();
-  this.$root = this.vdom.render(this);
-  return this.$root;
-};
-
-function simpleExtend(dest, src) {
-  if (!isPlainObject(src)) {
-    return dest;
-  }
-  for (var p in dest) {
-    if (dest.hasOwnProperty(p)) {
-      if (!isUndefined(src[p])) {
-        dest[p] = src[p];
+prtt._init = function _init(options) {
+  var methods = options.methods || {};
+  // 将 methods 移到 this
+  for (var m in methods) {
+    if (methods.hasOwnProperty(m)) {
+      if (this.hasOwnProperty(m)) {
+        warn('\u5C5E\u6027 "' + m + '" \u5DF2\u5B58\u5728');
+      } else {
+        this[m] = methods[m];
       }
     }
   }
-  return dest;
-}
+  var hooks = options.hooks || {};
+  for (var p in hooks) {
+    if (hooks.hasOwnProperty(p)) {
+      addHook.call(this, p, hooks[p]);
+    }
+  }
+  if (options.init) {
+    options.init.call(this);
+  }
+  this.vdom = this.vdomRender();
+};
 
 prtt.setState = function setState(state) {
-  // console.count('setState');
-  // @TODO 不能使用同一个 state
   if (state === this.state) {
-    warn('同一个 state');
+    throw new NaiveException('Never do `setState` with `this.state`');
   }
   simpleExtend(this.state, state);
   enqueueRender(this);
@@ -1698,28 +1719,27 @@ prtt.setState = function setState(state) {
 };
 
 // 更新视图
-prtt.update = function update() {
-  // console.count('update');
+prtt.$update = function $update() {
   if (!this.$root) {
     return this;
   }
+  callHooks.call(this, 'beforeUpdate', [clone(this.state)]);
   var preVdom = this.vdom;
   this.vdom = this.vdomRender();
-  // console.log(preVdom, this.vdom);
+  // console.log(preVdom, this.vdom)
   var patches = diff(preVdom, this.vdom);
-  // console.log(patches);
+  // console.log(patches)
   if (patches) {
     applyPatch(this, this.$root, patches);
   } else {
-    warn('不需要更新视图');
+    warn('Nothing is updated');
   }
-  this._callHooks('updated', [clone(this.state)]);
+  callHooks.call(this, 'updated', [clone(this.state)]);
   this._dirty = false;
   return this;
 };
 
-// nextTick
-prtt.nextTick = function nextTick$$1(callback) {
+prtt.$nextTick = function nextTick$$1(callback) {
   nextTick(callback);
 };
 
@@ -1740,76 +1760,57 @@ function updateProps(component, props) {
   deepExtend(component.state, combineProps);
 }
 
-prtt._init = function _init(options) {
-  var methods = options.methods || {};
-  // 将 methods 移到 this
-  for (var m in methods) {
-    if (methods.hasOwnProperty(m)) {
-      if (this.hasOwnProperty(m)) {
-        warn('\u5C5E\u6027 "' + m + '" \u5DF2\u5B58\u5728');
-      } else {
-        this[m] = methods[m];
-      }
-    }
-  }
-  var hooks = options.hooks || {};
-  for (var p in hooks) {
-    if (hooks.hasOwnProperty(p)) {
-      this._addHook(p, hooks[p]);
-    }
-  }
-  if (options.init) {
-    options.init.call(this);
-  }
+// vdom => dom
+prtt.render = function render() {
   this.vdom = this.vdomRender();
+  this.$root = this.vdom.render(this);
+  return this.$root;
 };
 
-prtt.mount = function mount(selector) {
-  var mountPoint = typeof selector === 'string' ? getElement(selector) : selector;
+prtt.$mount = function $mount(selector) {
+  var mountPoint = isString(selector) ? getElement(selector) : selector;
   if (!mountPoint) {
-    throw new NaiveException('找不到挂载节点');
+    throw new NaiveException('Mount point not found');
   }
-  if (this.$root) {
-    replaceNode(this.$root, mountPoint);
-  } else {
-    replaceNode(this.render(), mountPoint);
-  }
-  this._callHooks('mounted', [this.$root]);
+  callHooks.call(this, 'beforeMount');
+  var $root = this.render();
+  replaceNode($root, mountPoint);
+  callHooks.call(this, 'mounted', [$root]);
 };
 
-prtt.unmount = function unmount() {
+function doDestroy(vdom) {
+  if (isVComponent(vdom)) {
+    vdom.$destroy();
+  } else if (vdom.children) {
+    for (var i = 0; i < vdom.children.length; ++i) {
+      doDestroy(vdom.children[i]);
+    }
+  }
+}
+
+prtt.$destroy = function $destroy() {
   if (!this.$root) {
     return this;
   }
-  this._callHooks('beforeUnmount');
-  // 先移除子组件
-  for (var child in this._components) {
-    if (this._components.hasOwnProperty(child)) {
-      this._components[child].unmount();
-    }
+  var vdom = this.vdom;
+  for (var i = 0; i < vdom.children.length; ++i) {
+    doDestroy(vdom.children[i]);
   }
-  removeNode(this.$root);
-  this._callHooks('unmounted');
-};
-
-prtt._callHooks = callHooks;
-
-prtt._addHook = addHook;
-
-prtt._removeHook = removeHook;
-
-// 销毁组件
-prtt.destroy = function destroy() {
+  callHooks.call(this, 'beforeDestroy');
+  // removeNode(this.$root)
+  this.$root = null;
+  // 还要将对应的 vdom 删除
   // 销毁事件监听
-  // 调用 destroy 勾子
-  this._callHooks('destroy');
   // 销毁勾子回调
   for (var p in this._hooks) {
     if (this._hooks.hasOwnProperty(p)) {
-      this._removeHook(p);
+      removeHook.call(this, p);
     }
   }
+  callHooks.call(this, 'destroyed');
 };
+
+prtt._callHooks = callHooks;
 
 export default Naive;
 //# sourceMappingURL=naive.js.map
