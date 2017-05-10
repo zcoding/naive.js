@@ -779,8 +779,13 @@ VNode.prototype.render = function renderVNodeToElement(context) {
   }
   for (var i = 0; i < this.children.length; ++i) {
     var child = this.children[i];
+    var _isVComponent = isVComponent(child);
+    if (_isVComponent) {
+      // 如果是组件，先 update props
+      child.update();
+    }
     appendChild(child.render(context), element);
-    if (isVComponent(child)) {
+    if (_isVComponent) {
       child._callHooks('mounted');
     }
   }
@@ -1120,6 +1125,26 @@ function ascending(a, b) {
   return a > b ? 1 : -1;
 }
 
+// 移除节点
+// 如果是 DOM 节点，调用 removeNode
+// 如果是组件节点，调用 unmount
+// 先删子节点，递归删除
+function doRemoveNode(domNode, target) {
+  if (!target.children) {
+    if (isVComponent(target)) {
+      target.unmount();
+    } else {
+      removeNode(domNode);
+    }
+    return;
+  }
+  for (var i = 0; i < target.children.length; ++i) {
+    var child = target.children[i];
+    doRemoveNode(domNode.childNodes[i], child);
+  }
+  removeNode(domNode);
+}
+
 // 根据补丁更新 DOM 节点
 function doApplyPatches(context, domNode, patches) {
   for (var i = 0; i < patches.length; ++i) {
@@ -1166,21 +1191,14 @@ function doApplyPatches(context, domNode, patches) {
         }
         break;
       case PATCH.REMOVE:
-        if (isVComponent(patch.node)) {
-          // 移除组件
-          // console.log('移除组件')
-          var _childComponent = patch.node;
-          _childComponent.unmount();
-        } else {
-          // 移除节点
-          removeNode(domNode);
-        }
+        doRemoveNode(domNode, patch.node);
         break;
       case PATCH.COMPONENT:
         // 可能是同一组件或不同组件，但肯定都是组件
         if (patch.pVdom.key === patch.nVdom.key) {
           patch.pVdom.update();
         } else {
+          // ???
           patch.nVdom.update();
           patch.nVdom.mount(patch.pVdom.$root);
           patch.pVdom.unmount();
@@ -1516,6 +1534,15 @@ function rerender() {
 
 var componentId = 1;
 
+// 生成（重新生成） vdom 的时机:
+// 1. 初始化的时候
+// 2. update 的时候
+// 3. render 的时候
+
+// render 的时机:
+// 1. mount 的时候
+// 2. 父节点更新的时候
+
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
 // componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
 function uuid() {
@@ -1639,7 +1666,10 @@ function createComponentCreator(context, componentDefine) {
 
 var prtt = Naive.prototype;
 
+// 根据 vdom 生成 dom
+// 这里不会更新 state
 prtt.render = function render() {
+  this.vdom = this.vdomRender();
   this.$root = this.vdom.render(this);
   return this.$root;
 };
