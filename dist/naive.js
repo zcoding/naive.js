@@ -32,13 +32,10 @@ function isObject(obj) {
   return 'object' === (typeof obj === 'undefined' ? 'undefined' : _typeof(obj));
 }
 
-function clone(obj) {
+function deepClone(obj) {
   return deepExtend({}, obj);
 }
 
-
-
- // asap async
 
 
 // IE8
@@ -270,15 +267,272 @@ var removeClass = supportClassList ? function (element, classes) {
   return element;
 };
 
-function VText(text) {
-  this.data = text;
-}
-
-VText.prototype.$render = function renderVTextToTextNode() {
-  return createTextNode(this.data);
+var NodeTypes = {
+  "VNODE": 1,
+  "1": "VNODE",
+  "VTEXT": 2,
+  "2": "VTEXT",
+  "VCOMPONENT": 3,
+  "3": "VCOMPONENT"
 };
 
-function klass(setValue, element, context) {
+function isVNode(node) {
+  return node.nodeType === NodeTypes['VNODE'];
+}
+
+function isVText(node) {
+  return node.nodeType === NodeTypes['VTEXT'];
+}
+
+function isVComponent(node) {
+  return node.nodeType === NodeTypes['VCOMPONENT'];
+}
+
+function keyIndex(list) {
+  var keys = {}; // 有 key 的节点位置
+  var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i];
+    var itemKey = item.key;
+    if (typeof itemKey !== 'undefined') {
+      keys[itemKey] = i;
+    } else {
+      free.push(i);
+    }
+  }
+  return {
+    keys: keys,
+    free: free
+  };
+}
+
+// 模拟删除
+function remove(arr, index, key) {
+  arr.splice(index, 1);
+  return {
+    from: index,
+    key: key
+  };
+}
+
+function reorder(pList, nList) {
+  // N: pList.length
+  // M: nList.length
+  // O(M) time, O(M) memory
+  var nListIndex = keyIndex(nList);
+  var nKeys = nListIndex.keys;
+  var nFree = nListIndex.free;
+
+  if (nFree.length === nList.length) {
+    // 如果 nList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
+    return {
+      list: nList,
+      moves: null
+    };
+  }
+
+  // O(N) time, O(N) memory
+  var pListIndex = keyIndex(pList);
+  var pKeys = pListIndex.keys;
+  var pFree = pListIndex.free;
+
+  if (pFree.length === pList.length) {
+    // 如果 pList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
+    return {
+      list: nList,
+      moves: null
+    };
+  }
+
+  // O(MAX(N, M)) memory
+  var rList = [];
+
+  var freeIndex = 0; // 表示没有 key 的节点已使用的个数
+  var freeCount = nFree.length; // 表示 nList 中没有 key 的节点的总个数
+  var deletedItems = 0; // 被删除的节点的个数
+
+  // O(N) time
+  // 遍历 pList 将 pList 有 key 的节点映射到 nList 的节点，如果没有映射，就用 null 表示节点将被删除。pList 空闲节点用 nList 的空闲节点按顺序占位
+  for (var i = 0; i < pList.length; i++) {
+    var pItem = pList[i];
+
+    if (typeof pItem.key !== 'undefined') {
+      // key 节点
+      if (nKeys.hasOwnProperty(pItem.key)) {
+        // 有映射
+        var itemIndex = nKeys[pItem.key];
+        rList.push(nList[itemIndex]);
+      } else {
+        // 没有映射
+        deletedItems++;
+        rList.push(null);
+      }
+    } else {
+      // 空闲节点
+      if (freeIndex < freeCount) {
+        // nList 的空闲节点还没用完，继续用
+        var _itemIndex = nFree[freeIndex++];
+        rList.push(nList[_itemIndex]);
+      } else {
+        // nList 的空闲节点用完了，这个 pList 的空闲节点没有节点与其对应，应该被删除
+        deletedItems++;
+        rList.push(null);
+      }
+    }
+  }
+
+  var lastFreeIndex = freeIndex >= nFree.length ? // nList 中下一个空闲节点的位置
+  nList.length : // nList 中空闲节点已经用完了
+  nFree[freeIndex]; // 未用完
+
+  // O(M) time
+  // 遍历 nList 将新增节点／剩余空闲节点追加到 rList 末尾
+  for (var j = 0; j < nList.length; j++) {
+    var nItem = nList[j];
+    if (nItem.key) {
+      if (!pKeys.hasOwnProperty(nItem.key)) {
+        rList.push(nItem);
+      }
+    } else if (j >= lastFreeIndex) {
+      rList.push(nItem);
+    }
+  }
+
+  var simulateList = rList.slice(0); // 复制一份，模拟 rList -> nList 重排操作
+  var simulateIndex = 0;
+  var removes = []; // 被移除的节点
+  var inserts = []; // 被插入的节点
+  var simulateItem = void 0;
+
+  for (var k = 0; k < nList.length;) {
+    var wantedItem = nList[k]; // 目标节点
+    simulateItem = simulateList[simulateIndex]; // 模拟节点
+
+    // 先模拟删除
+    while (simulateItem === null && simulateList.length) {
+      removes.push(remove(simulateList, simulateIndex, null)); // 删除不需要记录 key 的节点
+      simulateItem = simulateList[simulateIndex];
+    }
+
+    if (!simulateItem || simulateItem.key !== wantedItem.key) {
+      // 如果当前位置有 key
+      if (wantedItem.key) {
+        // 如果当前节点的位置不对，要进行移动
+        if (simulateItem && simulateItem.key) {
+          if (nKeys[simulateItem.key] !== k + 1) {
+            if (isVComponent(simulateItem)) {
+              // debugger
+            }
+            removes.push(remove(simulateList, simulateIndex, simulateItem.key)); // 先移除当前位置的节点
+            simulateItem = simulateList[simulateIndex]; // 删除后，该位置对应的是下一个节点
+            // 然后在当前位置插入目标节点
+            if (!simulateItem || simulateItem.key !== wantedItem.key) {
+              // 如果删除之后还不对应，就插入目标节点
+              inserts.push({ key: wantedItem.key, to: k });
+            } else {
+              // 删除后正好对应就不需要插入了
+              simulateIndex++; // 检查下一个
+            }
+          } else {
+            // nKeys[simulateItem.key] === k + 1 如果下一个目标节点和当前模拟节点对应
+            inserts.push({ key: wantedItem.key, to: k });
+          }
+        } else {
+          // 位置不对，插入
+          inserts.push({ key: wantedItem.key, to: k });
+        }
+        k++;
+      }
+      // 目标节点没有 key 但是 模拟节点有 key
+      else if (simulateItem && simulateItem.key) {
+          // 位置不对，删除
+          removes.push(remove(simulateList, simulateIndex, simulateItem.key));
+        }
+    } else {
+      simulateIndex++;
+      k++;
+    }
+  }
+
+  // 删除所有剩余节点
+  while (simulateIndex < simulateList.length) {
+    simulateItem = simulateList[simulateIndex];
+    removes.push(remove(simulateList, simulateIndex, simulateItem && simulateItem.key));
+  }
+
+  // 这种情况不需要移位，只需要删除多余的节点：没有 key 对应的节点、多余的空闲节点
+  if (removes.length === deletedItems && !inserts.length) {
+    return {
+      list: rList,
+      moves: null
+    };
+  }
+
+  return {
+    list: rList,
+    moves: {
+      removes: removes,
+      inserts: inserts
+    }
+  };
+}
+
+// reorder:
+// [f1, A, B, C, D, f2] => [f3, C, B, A, f4, E, f5]
+// rList: [f3, A, B, C, null, f4]
+// rList: [f3, A, B, C, null, f4, E, f5]
+// deletedItems: 1
+// simulateList: [f3, A, B, C, null, f4, E, f5]
+// nList:        [f3, C, B, A, f4,   E,  f5   ]
+// si:0, k:0, nItem:f3, sItem:f3
+// s1:1, k:1, nItem:C, sItem:A
+// remove(1, A) => simulateList:[f3, B, C, null, f4, E, f5], sItem:B
+// insert(1, C) k++
+// si:1, k:2, nItem:B, sItem:B
+// si:2, k:3, nItem:A, sItem:C
+// remove(2, C) => simulateList:[f3, B, null, f4, E, f5], sItem:null
+// insert(3, A) k++
+// si:2, k:4, nItem:f4, sItem:null
+// remove(2, null) => simulateList:[f3, B, f4, E, f5], sItem:f4
+// si:2, k:4, nItem:f4, sItem:f4 => si++, k++
+// si:3, k:5, nItem:E, sItem:E => si++, k++
+// si:4, k:6, nItem:f5, sItem:f5 => si++, k++
+// si:5, k:7
+// moves:{removes: [(1, A), (2, C), (2, null)], inserts: [(1, C), (3, A)]}
+
+// diffChildren:
+// pList: [f1, A1, B1, C1, D,    f2       ]
+// rList: [f3, A2, B2, C2, null, f4, E, f5]
+// diff(f1, f3)
+// diff(A1, A2)
+// diff(B1, B2)
+// diff(C1, C2)
+// diff(D, null) => remove(D)
+// diff(f2, f4)
+// insert(null, E)
+// insert(null, f5)
+// {order: moves}
+
+// patch:
+// [f1, A1, B1, C1, D, f2]
+// 目标: [f3, C2, B2, A2, f4, E, f5]
+// insert(null, E) => [f1, A1, B1, C1, D, f2, E]
+// insert(null, f5) => [f1, A1, B1, C1, D, f2, E, f5]
+// patch order:
+// remove(1, A) => [f1, B1, C1, D, f2, E, f5], map:{A: A1}
+// remove(2, C) => [f1, B1, D, f2, E, f5], map:{A: A1, C: C1}
+// remove(2, null) => [f1, B1, f2, E, f5]
+// insert(1, C) => [f1, C1, B1, f2, E, f5]
+// insert(3, A) => [f1, C1, B1, A1, f2, E, f5]
+// patch 子节点
+// patch(f1, f3)
+// patch(A1, A2)
+// patch(B1, B2)
+// patch(C1, C2)
+// remove D 已删除，不会重复删除
+// patch(f2, f4)
+
+function staticClass(setValue, element, context) {
   if (typeof setValue === 'string') {
     setAttr(element, 'class', setValue);
   } else if (isArray(setValue)) {
@@ -604,8 +858,8 @@ function handleDirective(directive, value, element, context) {
     case 'show':
       show(value, element, context);
       break;
-    case 'class':
-      klass(value, element, context);
+    case 'staticClass':
+      staticClass(value, element, context);
       break;
     case 'style':
       style(value, element, context);
@@ -633,14 +887,14 @@ function bindDirective(directive, value, element, context) {
       if (element.type === 'radio') {
         attachEvent(element, 'change', function handleChange(event) {
           var selectValue = event.currentTarget.value;
-          var currentState = clone(context.state);
+          var currentState = deepClone(context.state);
           setObjectFromPath(currentState, value, selectValue);
           context.setState(currentState);
         });
       } else if (element.type === 'checkbox') {
         attachEvent(element, 'change', function handleChange() {
           var selectValue = event.currentTarget.value;
-          var currentState = clone(context.state);
+          var currentState = deepClone(context.state);
           var preValue = getObjectFromPath(currentState, value);
           if (event.currentTarget.checked) {
             if (preValue.indexOf(selectValue) === -1) {
@@ -661,7 +915,7 @@ function bindDirective(directive, value, element, context) {
       } else if (element.tagName === 'SELECT') {
         attachEvent(element, 'change', function handleInput() {
           // 通过 path 设置 state
-          var currentState = clone(context.state);
+          var currentState = deepClone(context.state);
           if (element.multiple) {
             var options = element.options;
             var newValue = [];
@@ -680,7 +934,7 @@ function bindDirective(directive, value, element, context) {
       } else {
         attachEvent(element, 'input', function handleInput() {
           // 通过 path 设置 state
-          var currentState = clone(context.state);
+          var currentState = deepClone(context.state);
           setObjectFromPath(currentState, value, element.value);
           context.setState(currentState);
         });
@@ -691,7 +945,7 @@ function bindDirective(directive, value, element, context) {
 }
 
 function removeClassAttr(removeValue, element, context) {
-  if (typeof removeValue === 'string') {
+  if (isString(removeValue)) {
     removeClass(element, removeValue);
   } else if (isArray(removeValue)) {
     removeClass(element, removeValue.join(' '));
@@ -706,398 +960,11 @@ function removeClassAttr(removeValue, element, context) {
 
 function handleDirectiveRemove(directive, value, element, context) {
   switch (directive) {
-    case 'class':
+    case 'staticClass':
       removeClassAttr(value, element, context);
       break;
   }
 }
-
-function NaiveException(message) {
-  this.name = 'NaiveException';
-  this.message = message;
-}
-
-function addHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks) {
-    callbacks = [];
-  }
-  if (isArray(callback)) {
-    callbacks = callbacks.concat(callback);
-  } else {
-    callbacks.push(callback);
-  }
-  this._hooks[hookName] = callbacks;
-}
-
-function removeHook(hookName, callback) {
-  var callbacks = this._hooks[hookName];
-  if (!callbacks || callbacks.length === 0) {
-    return this;
-  }
-  if (!callback) {
-    callbacks.splice(0, callbacks.length);
-  } else {
-    for (var i = 0; i < callbacks.length; ++i) {
-      if (callbacks[i] === callback) {
-        callbacks.splice(i, 1);
-        break;
-      }
-    }
-  }
-  return this;
-}
-
-function callHooks(hookName, params) {
-  var _callbacks = this._hooks[hookName] || [];
-  for (var i = 0; i < _callbacks.length; ++i) {
-    _callbacks[i].apply(this, params);
-  }
-}
-
-function h(tagName, props, children, key) {
-  var context = this || {};
-  var components = context['components'] || {};
-  if (isVNode(tagName) || isVText(tagName) || isVComponent(tagName)) {
-    return tagName;
-  } else if (isPlainObject(tagName)) {
-    if (components.hasOwnProperty(tagName.tagName)) {
-      // 可能是 props 或者 attrs
-      return components[tagName.tagName](tagName.props || tagName.attrs, tagName.children, tagName.key);
-    } else {
-      return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
-    }
-  } else if (isArray(tagName)) {
-    var list = [];
-    for (var i = 0; i < tagName.length; ++i) {
-      list.push(h(tagName[i]));
-    }
-    return list;
-  } else if (arguments.length < 2) {
-    return new VText(tagName);
-  } else {
-    if (components.hasOwnProperty(tagName)) {
-      return components[tagName](props, children, key);
-    } else {
-      return new VNode(tagName, props, children, key);
-    }
-  }
-}
-
-function VNode(tagName, props, children, key) {
-  this.tagName = tagName;
-  this.props = props || {};
-  this.key = key ? String(key) : undefined; // key 用来标识节点，方便 diff
-  var childNodes = [];
-  children = children || [];
-  for (var i = 0; i < children.length; ++i) {
-    var child = children[i];
-    if (isArray(child)) {
-      childNodes = childNodes.concat(h.call(this, child));
-    } else {
-      if (child !== false) {
-        childNodes.push(h.call(this, child));
-      }
-    }
-  }
-  this.children = childNodes;
-  var count = this.children.length;
-  for (var _i = 0; _i < this.children.length; ++_i) {
-    count += this.children[_i].count || 0;
-  }
-  this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
-}
-
-// 检查是否指令属性
-VNode.prototype.$render = function renderVNodeToElement(context) {
-  var element = createElement(this.tagName);
-  var props = this.props;
-  var nodeContext = this;
-  for (var p in props) {
-    if (props.hasOwnProperty(p)) {
-      if (/^n-/.test(p)) {
-        bindDirective(p.slice(2), props[p], element, context);
-        handleDirective(p.slice(2), props[p], element, context);
-      } else if (/^:/.test(p)) {
-        handleDirective(p.slice(1), props[p], element, context);
-      } else if (/^@/.test(p)) {
-        var eventName = p.slice(1);
-        var handler = props[p];
-        attachEvent(element, eventName, handler);
-      } else {
-        setAttr(element, p, props[p]);
-      }
-    }
-  }
-  for (var i = 0; i < this.children.length; ++i) {
-    var child = this.children[i];
-    if (isVComponent(child)) {
-      callHooks.call(child, 'beforeMount');
-      var $root = child.$render();
-      appendChild($root, element);
-      callHooks.call(child, 'mounted', [$root]);
-    } else {
-      appendChild(child.$render(context), element);
-    }
-  }
-  return element;
-};
-
-function isVNode(node) {
-  return node instanceof VNode;
-}
-
-function isVText(node) {
-  return node instanceof VText;
-}
-
-function isVComponent(node) {
-  return node instanceof Naive;
-}
-
-function keyIndex(list) {
-  var keys = {}; // 有 key 的节点位置
-  var free = []; // 可替换的位置（没有 key 的节点都被标识为可替换的节点）
-  for (var i = 0; i < list.length; i++) {
-    var item = list[i];
-    var itemKey = item.key;
-    if (typeof itemKey !== 'undefined') {
-      keys[itemKey] = i;
-    } else {
-      free.push(i);
-    }
-  }
-  return {
-    keys: keys,
-    free: free
-  };
-}
-
-// 模拟删除
-function remove(arr, index, key) {
-  arr.splice(index, 1);
-  return {
-    from: index,
-    key: key
-  };
-}
-
-function reorder(pList, nList) {
-  // N: pList.length
-  // M: nList.length
-  // O(M) time, O(M) memory
-  var nListIndex = keyIndex(nList);
-  var nKeys = nListIndex.keys;
-  var nFree = nListIndex.free;
-
-  if (nFree.length === nList.length) {
-    // 如果 nList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
-    return {
-      list: nList,
-      moves: null
-    };
-  }
-
-  // O(N) time, O(N) memory
-  var pListIndex = keyIndex(pList);
-  var pKeys = pListIndex.keys;
-  var pFree = pListIndex.free;
-
-  if (pFree.length === pList.length) {
-    // 如果 pList 全部节点都没有 key 就不需要 reorder 把 nList 直接作为 reorder 之后的列表返回
-    return {
-      list: nList,
-      moves: null
-    };
-  }
-
-  // O(MAX(N, M)) memory
-  var rList = [];
-
-  var freeIndex = 0; // 表示没有 key 的节点已使用的个数
-  var freeCount = nFree.length; // 表示 nList 中没有 key 的节点的总个数
-  var deletedItems = 0; // 被删除的节点的个数
-
-  // O(N) time
-  // 遍历 pList 将 pList 有 key 的节点映射到 nList 的节点，如果没有映射，就用 null 表示节点将被删除。pList 空闲节点用 nList 的空闲节点按顺序占位
-  for (var i = 0; i < pList.length; i++) {
-    var pItem = pList[i];
-
-    if (typeof pItem.key !== 'undefined') {
-      // key 节点
-      if (nKeys.hasOwnProperty(pItem.key)) {
-        // 有映射
-        var itemIndex = nKeys[pItem.key];
-        rList.push(nList[itemIndex]);
-      } else {
-        // 没有映射
-        deletedItems++;
-        rList.push(null);
-      }
-    } else {
-      // 空闲节点
-      if (freeIndex < freeCount) {
-        // nList 的空闲节点还没用完，继续用
-        var _itemIndex = nFree[freeIndex++];
-        rList.push(nList[_itemIndex]);
-      } else {
-        // nList 的空闲节点用完了，这个 pList 的空闲节点没有节点与其对应，应该被删除
-        deletedItems++;
-        rList.push(null);
-      }
-    }
-  }
-
-  var lastFreeIndex = freeIndex >= nFree.length ? // nList 中下一个空闲节点的位置
-  nList.length : // nList 中空闲节点已经用完了
-  nFree[freeIndex]; // 未用完
-
-  // O(M) time
-  // 遍历 nList 将新增节点／剩余空闲节点追加到 rList 末尾
-  for (var j = 0; j < nList.length; j++) {
-    var nItem = nList[j];
-    if (nItem.key) {
-      if (!pKeys.hasOwnProperty(nItem.key)) {
-        rList.push(nItem);
-      }
-    } else if (j >= lastFreeIndex) {
-      rList.push(nItem);
-    }
-  }
-
-  var simulateList = rList.slice(0); // 复制一份，模拟 rList -> nList 重排操作
-  var simulateIndex = 0;
-  var removes = []; // 被移除的节点
-  var inserts = []; // 被插入的节点
-  var simulateItem = void 0;
-
-  for (var k = 0; k < nList.length;) {
-    var wantedItem = nList[k]; // 目标节点
-    simulateItem = simulateList[simulateIndex]; // 模拟节点
-
-    // 先模拟删除
-    while (simulateItem === null && simulateList.length) {
-      removes.push(remove(simulateList, simulateIndex, null)); // 删除不需要记录 key 的节点
-      simulateItem = simulateList[simulateIndex];
-    }
-
-    if (!simulateItem || simulateItem.key !== wantedItem.key) {
-      // 如果当前位置有 key
-      if (wantedItem.key) {
-        // 如果当前节点的位置不对，要进行移动
-        if (simulateItem && simulateItem.key) {
-          if (nKeys[simulateItem.key] !== k + 1) {
-            if (isVComponent(simulateItem)) {
-              // debugger
-            }
-            removes.push(remove(simulateList, simulateIndex, simulateItem.key)); // 先移除当前位置的节点
-            simulateItem = simulateList[simulateIndex]; // 删除后，该位置对应的是下一个节点
-            // 然后在当前位置插入目标节点
-            if (!simulateItem || simulateItem.key !== wantedItem.key) {
-              // 如果删除之后还不对应，就插入目标节点
-              inserts.push({ key: wantedItem.key, to: k });
-            } else {
-              // 删除后正好对应就不需要插入了
-              simulateIndex++; // 检查下一个
-            }
-          } else {
-            // nKeys[simulateItem.key] === k + 1 如果下一个目标节点和当前模拟节点对应
-            inserts.push({ key: wantedItem.key, to: k });
-          }
-        } else {
-          // 位置不对，插入
-          inserts.push({ key: wantedItem.key, to: k });
-        }
-        k++;
-      }
-      // 目标节点没有 key 但是 模拟节点有 key
-      else if (simulateItem && simulateItem.key) {
-          // 位置不对，删除
-          removes.push(remove(simulateList, simulateIndex, simulateItem.key));
-        }
-    } else {
-      simulateIndex++;
-      k++;
-    }
-  }
-
-  // 删除所有剩余节点
-  while (simulateIndex < simulateList.length) {
-    simulateItem = simulateList[simulateIndex];
-    removes.push(remove(simulateList, simulateIndex, simulateItem && simulateItem.key));
-  }
-
-  // 这种情况不需要移位，只需要删除多余的节点：没有 key 对应的节点、多余的空闲节点
-  if (removes.length === deletedItems && !inserts.length) {
-    return {
-      list: rList,
-      moves: null
-    };
-  }
-
-  return {
-    list: rList,
-    moves: {
-      removes: removes,
-      inserts: inserts
-    }
-  };
-}
-
-// reorder:
-// [f1, A, B, C, D, f2] => [f3, C, B, A, f4, E, f5]
-// rList: [f3, A, B, C, null, f4]
-// rList: [f3, A, B, C, null, f4, E, f5]
-// deletedItems: 1
-// simulateList: [f3, A, B, C, null, f4, E, f5]
-// nList:        [f3, C, B, A, f4,   E,  f5   ]
-// si:0, k:0, nItem:f3, sItem:f3
-// s1:1, k:1, nItem:C, sItem:A
-// remove(1, A) => simulateList:[f3, B, C, null, f4, E, f5], sItem:B
-// insert(1, C) k++
-// si:1, k:2, nItem:B, sItem:B
-// si:2, k:3, nItem:A, sItem:C
-// remove(2, C) => simulateList:[f3, B, null, f4, E, f5], sItem:null
-// insert(3, A) k++
-// si:2, k:4, nItem:f4, sItem:null
-// remove(2, null) => simulateList:[f3, B, f4, E, f5], sItem:f4
-// si:2, k:4, nItem:f4, sItem:f4 => si++, k++
-// si:3, k:5, nItem:E, sItem:E => si++, k++
-// si:4, k:6, nItem:f5, sItem:f5 => si++, k++
-// si:5, k:7
-// moves:{removes: [(1, A), (2, C), (2, null)], inserts: [(1, C), (3, A)]}
-
-// diffChildren:
-// pList: [f1, A1, B1, C1, D,    f2       ]
-// rList: [f3, A2, B2, C2, null, f4, E, f5]
-// diff(f1, f3)
-// diff(A1, A2)
-// diff(B1, B2)
-// diff(C1, C2)
-// diff(D, null) => remove(D)
-// diff(f2, f4)
-// insert(null, E)
-// insert(null, f5)
-// {order: moves}
-
-// patch:
-// [f1, A1, B1, C1, D, f2]
-// 目标: [f3, C2, B2, A2, f4, E, f5]
-// insert(null, E) => [f1, A1, B1, C1, D, f2, E]
-// insert(null, f5) => [f1, A1, B1, C1, D, f2, E, f5]
-// patch order:
-// remove(1, A) => [f1, B1, C1, D, f2, E, f5], map:{A: A1}
-// remove(2, C) => [f1, B1, D, f2, E, f5], map:{A: A1, C: C1}
-// remove(2, null) => [f1, B1, f2, E, f5]
-// insert(1, C) => [f1, C1, B1, f2, E, f5]
-// insert(3, A) => [f1, C1, B1, A1, f2, E, f5]
-// patch 子节点
-// patch(f1, f3)
-// patch(A1, A2)
-// patch(B1, B2)
-// patch(C1, C2)
-// remove D 已删除，不会重复删除
-// patch(f2, f4)
 
 // 映射 dom 树与 virtual-dom 树，找到对应索引的 dom 节点并保存索引映射
 function domIndex(domTree, vdomTree, indices) {
@@ -1159,6 +1026,44 @@ function indexInRange(indices, min, max) {
     }
   }
   return result;
+}
+
+function addHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks) {
+    callbacks = [];
+  }
+  if (isArray(callback)) {
+    callbacks = callbacks.concat(callback);
+  } else {
+    callbacks.push(callback);
+  }
+  this._hooks[hookName] = callbacks;
+}
+
+function removeHook(hookName, callback) {
+  var callbacks = this._hooks[hookName];
+  if (!callbacks || callbacks.length === 0) {
+    return this;
+  }
+  if (!callback) {
+    callbacks.splice(0, callbacks.length);
+  } else {
+    for (var i = 0; i < callbacks.length; ++i) {
+      if (callbacks[i] === callback) {
+        callbacks.splice(i, 1);
+        break;
+      }
+    }
+  }
+  return this;
+}
+
+function callHooks(hookName, params) {
+  var _callbacks = this._hooks[hookName] || [];
+  for (var i = 0; i < _callbacks.length; ++i) {
+    _callbacks[i].apply(this, params);
+  }
 }
 
 var PATCH = {
@@ -1478,11 +1383,113 @@ function diff(pVdom, nVdom) {
   return patch;
 }
 
-// 异步执行
-// 如果 Promise 可用，就用 Promise，否则用 setTimeout
-var resolved$1 = typeof Promise !== 'undefined' && Promise.resolve();
-var defer$1 = resolved$1 ? function (f) {
-  resolved$1.then(f);
+function NaiveException(message) {
+  this.name = 'NaiveException';
+  this.message = message;
+}
+
+function VNode(tagName, props, children, key) {
+  this.nodeType = NodeTypes['VNODE'];
+  this.tagName = tagName;
+  this.props = props || {};
+  this.key = key ? String(key) : undefined; // key 用来标识节点，方便 diff
+  var childNodes = [];
+  children = children || [];
+  for (var i = 0; i < children.length; ++i) {
+    var child = children[i];
+    if (isArray(child)) {
+      childNodes = childNodes.concat(h.call(this, child));
+    } else {
+      if (child !== false) {
+        childNodes.push(h.call(this, child));
+      }
+    }
+  }
+  this.children = childNodes;
+  var count = this.children.length;
+  for (var _i = 0; _i < this.children.length; ++_i) {
+    count += this.children[_i].count || 0;
+  }
+  this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
+}
+
+// vdom => dom
+VNode.prototype.$render = function renderVNodeToElement(context) {
+  var element = createElement(this.tagName);
+  var props = this.props;
+  var nodeContext = this;
+  for (var p in props) {
+    if (props.hasOwnProperty(p)) {
+      if (/^n-/.test(p)) {
+        bindDirective(p.slice(2), props[p], element, context);
+        handleDirective(p.slice(2), props[p], element, context);
+      } else if (/^:/.test(p)) {
+        handleDirective(p.slice(1), props[p], element, context);
+      } else if (/^@/.test(p)) {
+        var eventName = p.slice(1);
+        var handler = props[p];
+        attachEvent(element, eventName, handler);
+      } else {
+        setAttr(element, p, props[p]);
+      }
+    }
+  }
+  for (var i = 0; i < this.children.length; ++i) {
+    var child = this.children[i];
+    // @TODO 重新生成 vdom 的时候不应该总是重新生成 VComponent
+    if (isVComponent(child)) {
+      callHooks.call(child, 'beforeMount');
+      var $root = child.$render();
+      appendChild($root, element);
+      callHooks.call(child, 'mounted', [$root]);
+    } else {
+      appendChild(child.$render(context), element);
+    }
+  }
+  return element;
+};
+
+function VText(text) {
+  this.nodeType = NodeTypes['VTEXT'];
+  this.data = text;
+}
+
+VText.prototype.$render = function renderVTextToTextNode() {
+  return createTextNode(this.data);
+};
+
+function h(tagName, props, children, key) {
+  var context = this || {};
+  var components = context['components'] || {};
+  if (isVNode(tagName) || isVText(tagName) || isVComponent(tagName)) {
+    return tagName;
+  } else if (isPlainObject(tagName)) {
+    if (components.hasOwnProperty(tagName.tagName)) {
+      // 可能是 props 或者 attrs
+      return components[tagName.tagName](tagName.props || tagName.attrs, tagName.children, tagName.key);
+    } else {
+      return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
+    }
+  } else if (isArray(tagName)) {
+    var list = [];
+    for (var i = 0; i < tagName.length; ++i) {
+      list.push(h(tagName[i]));
+    }
+    return list;
+  } else if (arguments.length < 2) {
+    return new VText(tagName);
+  } else {
+    if (components.hasOwnProperty(tagName)) {
+      return components[tagName](props, children, key);
+    } else {
+      return new VNode(tagName, props, children, key);
+    }
+  }
+}
+
+var resolved = !isUndefined(Promise) && Promise.resolve();
+var defer = resolved ? function (f) {
+  resolved.then(f);
 } : setTimeout;
 
 var renderCallbacks = [];
@@ -1494,14 +1501,14 @@ var isDirty = false;
 function nextTick(callback) {
   nextTickCallbacks.push(callback);
   if (renderCallbacks.length === 0) {
-    defer$1(doNextTick);
+    defer(doNextTick);
   }
 }
 
 function enqueueRender(component) {
   if (!component._dirty && (component._dirty = true) && renderCallbacks.push(component) === 1) {
     isDirty = true;
-    defer$1(rerender);
+    defer(rerender);
   }
 }
 
@@ -1533,6 +1540,12 @@ function rerender() {
 
 var componentId = 1;
 
+// _init => 首次生成 vdom
+// $update => 重新生成 vdom => diff => patches => 更新 dom（不会重新生成 $root）
+// $render => vdom => 调用 vdom 的 $render 生成 dom（第一次调用 $render 之后才会有 $root）
+// $mount => $render => 将 $root 挂载到页面
+// setState => 更新 state 但不会立即更新 vdom => $update 此时才会更新
+
 // 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
 // componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
 function uuid() {
@@ -1544,6 +1557,7 @@ function emptyRender(h$$1) {
 }
 
 function Naive(options) {
+  this.nodeType = NodeTypes['VCOMPONENT'];
   options = options || {};
   this.name = options.name || '';
   this.key = options.key || uuid();
@@ -1645,10 +1659,9 @@ function Naive(options) {
 
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
-    var options = deepExtend({}, componentDefine, { props: props, key: key });
-    var newChild = new Naive(options);
+    var newChild = new Naive(deepExtend({}, componentDefine, { props: props, key: key }));
     context._components[key] = newChild;
-    return context._components[key];
+    return newChild;
   };
 }
 
@@ -1683,6 +1696,7 @@ prtt.setState = function setState(state) {
     throw new NaiveException('Never do `setState` with `this.state`');
   }
   simpleExtend(this.state, state);
+  // @TODO 触发子组件 updateProps
   enqueueRender(this);
   return this;
 };
@@ -1694,18 +1708,14 @@ prtt.$update = function $update() {
     // throw new NaiveException('VComponent must be mounted before update')
   }
   // console.log(this)
-  callHooks.call(this, 'beforeUpdate', [clone(this.state)]);
+  callHooks.call(this, 'beforeUpdate', [deepClone(this.state)]);
   var preVdom = this.vdom;
   this.vdom = this.vdomRender();
   // console.log(preVdom, this.vdom)
   var patches = diff(preVdom, this.vdom);
-  // console.log(patches)
-  if (patches) {
-    applyPatch(this, this.$root, patches);
-  } else {
-    warn('Nothing is updated');
-  }
-  callHooks.call(this, 'updated', [clone(this.state)]);
+  console.log(patches);
+  applyPatch(this, this.$root, patches);
+  callHooks.call(this, 'updated', [deepClone(this.state)]);
   this._dirty = false;
   return this;
 };
