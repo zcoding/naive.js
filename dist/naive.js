@@ -1458,6 +1458,25 @@ VText.prototype.$render = function renderVTextToTextNode() {
   return createTextNode(this.data);
 };
 
+function updateProps(component, props) {
+  var combineProps = {};
+  if (props) {
+    for (var p in props) {
+      if (props.hasOwnProperty(p)) {
+        component.props[p] = props[p];
+        if (/^:/.test(p)) {
+          combineProps[p.slice(1)] = props[p];
+        } else {
+          combineProps[p] = String(props[p]);
+        }
+      }
+    }
+  }
+  deepExtend(component.state, combineProps);
+}
+
+// create vdom
+// @TODO 需要增强参数
 function h(tagName, props, children, key) {
   var context = this || {};
   var components = context['components'] || {};
@@ -1465,8 +1484,16 @@ function h(tagName, props, children, key) {
     return tagName;
   } else if (isPlainObject(tagName)) {
     if (components.hasOwnProperty(tagName.tagName)) {
-      // 可能是 props 或者 attrs
-      return components[tagName.tagName](tagName.props || tagName.attrs, tagName.children, tagName.key);
+      var componentProps = tagName.props || tagName.attrs;
+      // 如果是已生成的组件，不要重新生成
+      var _components = context['_components'] || {};
+      if (_components[tagName.key]) {
+        updateProps(_components[tagName.key], componentProps);
+        return _components[tagName.key];
+      } else {
+        // 可能是 props 或者 attrs
+        return components[tagName.tagName](componentProps, tagName.children, tagName.key);
+      }
     } else {
       return new VNode(tagName.tagName, tagName.attrs, tagName.children, tagName.key);
     }
@@ -1480,7 +1507,13 @@ function h(tagName, props, children, key) {
     return new VText(tagName);
   } else {
     if (components.hasOwnProperty(tagName)) {
-      return components[tagName](props, children, key);
+      var _components2 = context['_components'] || {};
+      if (_components2[key]) {
+        updateProps(_components2[key], props);
+        return _components2[key];
+      } else {
+        return components[tagName](props, children, key);
+      }
     } else {
       return new VNode(tagName, props, children, key);
     }
@@ -1634,7 +1667,7 @@ function Naive(options) {
       return nodes;
     }
   };
-  this.vdomRender = function vdomRender() {
+  this.$vdomRender = function $vdomRender() {
     var vdom = _vdomRender.call(this, function createVdom() {
       return h.apply(context, toArray$$1(arguments));
     }, _templateHelpers);
@@ -1688,7 +1721,7 @@ prtt._init = function _init(options) {
   if (options.init) {
     options.init.call(this);
   }
-  this.vdom = this.vdomRender();
+  this.$vdom = this.$vdomRender();
 };
 
 prtt.setState = function setState(state) {
@@ -1696,7 +1729,6 @@ prtt.setState = function setState(state) {
     throw new NaiveException('Never do `setState` with `this.state`');
   }
   simpleExtend(this.state, state);
-  // @TODO 触发子组件 updateProps
   enqueueRender(this);
   return this;
 };
@@ -1709,24 +1741,24 @@ prtt.$update = function $update() {
   }
   // console.log(this)
   callHooks.call(this, 'beforeUpdate', [deepClone(this.state)]);
-  var preVdom = this.vdom;
-  this.vdom = this.vdomRender();
-  // console.log(preVdom, this.vdom)
-  var patches = diff(preVdom, this.vdom);
-  console.log(patches);
+  var preVdom = this.$vdom;
+  this.$vdom = this.$vdomRender();
+  // console.log(preVdom, this.$vdom)
+  var patches = diff(preVdom, this.$vdom);
+  // console.log(patches)
   applyPatch(this, this.$root, patches);
   callHooks.call(this, 'updated', [deepClone(this.state)]);
   this._dirty = false;
   return this;
 };
 
-prtt.$nextTick = function nextTick$$1(callback) {
+prtt.$nextTick = function $nextTick(callback) {
   nextTick(callback);
 };
 
 // render view: vdom => dom
 prtt.$render = function $render() {
-  this.$root = this.vdom.$render(this);
+  this.$root = this.$vdom.$render(this);
   return this.$root;
 };
 
@@ -1756,7 +1788,7 @@ prtt.$destroy = function $destroy() {
   if (!this.$root) {
     return this;
   }
-  var vdom = this.vdom;
+  var vdom = this.$vdom;
   for (var i = 0; i < vdom.children.length; ++i) {
     doDestroy(vdom.children[i]);
   }
@@ -1768,6 +1800,12 @@ prtt.$destroy = function $destroy() {
   for (var p in this._hooks) {
     if (this._hooks.hasOwnProperty(p)) {
       removeHook.call(this, p);
+    }
+  }
+  // 从父组件的 _components 中移除
+  if (this.parent) {
+    if (this.parent._components.hasOwnProperty(this.key)) {
+      delete this.parent._components[this.key];
     }
   }
 };
