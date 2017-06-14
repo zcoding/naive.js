@@ -8,3 +8,14 @@
  ☐ 模板指令内生成组件时，无法传递 prop ?
 
 _init 和 $mount 都调用了 vdomRender 导致重复生成 vdom
+
+SVG:
+  ☐ 创建 SVG 元素不能用 createElement
+
+渲染优化:
+  ☐ 去掉 updated 时候的 deepClone
+  ☐ 优化 list-diff 尽量减少使用 removeChild
+  ☐ 缓存 DOM 节点，不必每次都重新创建
+
+兼容性:
+  ☐ ES5

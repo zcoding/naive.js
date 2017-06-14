@@ -6,6 +6,19 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
 var sliceArray = Array.prototype.slice;
 
+function makeMap(str, expectsLowerCase) {
+  var map = Object.create(null);
+  var list = str.split(',');
+  for (var i = 0; i < list.length; i++) {
+    map[list[i]] = true;
+  }
+  return expectsLowerCase ? function (val) {
+    return map[val.toLowerCase()];
+  } : function (val) {
+    return map[val];
+  };
+}
+
 function warn(message) {
   if (window.console) {
     console.warn('[naive.js] ' + message);
@@ -14,9 +27,7 @@ function warn(message) {
 
 
 
-var isArray = Array.isArray || function isArray(arr) {
-  return Object.prototype.toString.call(arr) === '[obejct Array]';
-};
+var isArray = Array.isArray;
 
 function toArray$$1(obj) {
   return sliceArray.call(obj, 0);
@@ -32,9 +43,7 @@ function isObject(obj) {
   return 'object' === (typeof obj === 'undefined' ? 'undefined' : _typeof(obj));
 }
 
-function deepClone(obj) {
-  return deepExtend({}, obj);
-}
+
 
 
 
@@ -55,7 +64,6 @@ function hasOwnProp() {
   return plainObject().hasOwnProperty;
 }
 
-// IE8+
 function isPlainObject(obj) {
   if (!obj || Object.prototype.toString.call(obj) !== '[object Object]') {
     return false;
@@ -137,6 +145,8 @@ function simpleExtend(dest, src) {
   return dest;
 }
 
+var isSVG = makeMap('svg,animate,circle,clippath,cursor,defs,desc,ellipse,filter,font-face,foreignObject,g,glyph,image,line,marker,mask,missing-glyph,path,pattern,polygon,polyline,rect,switch,symbol,text,textpath,tspan,use,view', true);
+
 function getElement(selector) {
   if (isString(selector)) {
     if (selector[0] === '#') {
@@ -149,8 +159,10 @@ function getElement(selector) {
   }
 }
 
-function createElement(tag) {
-  return document.createElement(tag);
+function createElement(nodeName) {
+  var node = isSVG(nodeName) ? document.createElementNS('http://www.w3.org/2000/svg', nodeName) : document.createElement(nodeName);
+  node.normalizedNodeName = nodeName;
+  return node;
 }
 
 function createTextNode(text) {
@@ -790,7 +802,98 @@ function setObjectFromPath(data, path, value) {
   }
 }
 
-function modelSelect(currentValue, element, context) {
+function attachEvent(el, eventName, handler) {
+  if (el.addEventListener) {
+    el.addEventListener(eventName, handler, false);
+  } else if (el.attachEvent) {
+    el.attachEvent(eventName, handler);
+  }
+}
+
+var model = {
+  bind: function bind(element, binding, vdom) {
+    var context = vdom;
+    var expression = binding.expression;
+    var tag = element.tagName.toLowerCase();
+    var type = element.type;
+    if (tag === 'select') {
+      attachEvent(element, 'change', function handleInput() {
+        // 通过 path 设置 state
+        var currentState = context.state;
+        if (element.multiple) {
+          var options = element.options;
+          var newValue = [];
+          for (var i = 0; i < options.length; ++i) {
+            if (options[i].selected) {
+              newValue.push(options[i].value);
+            }
+          }
+          setObjectFromPath(currentState, expression, newValue);
+          context.setState(currentState);
+        } else {
+          setObjectFromPath(currentState, expression, element.value);
+          context.setState(currentState);
+        }
+      });
+    } else if (tag === 'input' && type === 'radio') {
+      attachEvent(element, 'change', function handleChange(event) {
+        var selectValue = event.currentTarget.value;
+        var currentState = context.state;
+        setObjectFromPath(currentState, expression, selectValue);
+        context.setState(currentState);
+      });
+    } else if (tag === 'input' && type === 'checkbox') {
+      attachEvent(element, 'change', function handleChange() {
+        var selectValue = event.currentTarget.value;
+        var currentState = context.state;
+        var preValue = getObjectFromPath(currentState, expression);
+        if (event.currentTarget.checked) {
+          if (preValue.indexOf(selectValue) === -1) {
+            preValue.push(selectValue);
+          }
+        } else {
+          var i = 0;
+          while (i < preValue.length) {
+            if (preValue[i] === selectValue) {
+              preValue.splice(i, 1);
+              break;
+            }
+            ++i;
+          }
+        }
+        context.setState(currentState);
+      });
+    } else if (tag === 'textarea' || tag === 'input') {
+      attachEvent(element, 'input', function handleInput() {
+        // 通过 path 设置 state
+        var currentState = context.state;
+        setObjectFromPath(currentState, expression, element.value);
+        context.setState(currentState);
+      });
+    } else {
+      // shit
+    }
+  },
+  update: function update(expression, element, context) {
+    var currentValue = getObjectFromPath(context.state, expression);
+    var tag = element.tagName.toLowerCase();
+    var type = element.type;
+    if (tag === 'select') {
+      selectUpdate(currentValue, element, context);
+    } else if (tag === 'input' && type === 'radio') {
+      inputRadioUpdate(currentValue, element, context);
+    } else if (tag === 'input' && type === 'checkbox') {
+      inputCheckboxUpdate(currentValue, element, context);
+    } else if (tag === 'textarea' || tag === 'input') {
+      inputTextareaUpdate(currentValue, element, context);
+    } else {
+      // not support
+    }
+  },
+  unbind: function unbind() {}
+};
+
+function selectUpdate(currentValue, element, context) {
   if (element.multiple) {
     var options = element.options;
     for (var i = 0; i < options.length; ++i) {
@@ -807,11 +910,11 @@ function modelSelect(currentValue, element, context) {
   }
 }
 
-function modelRadio(currentValue, element, context) {
+function inputRadioUpdate(currentValue, element, context) {
   element.checked = currentValue === element.value;
 }
 
-function modelCheckbox(currentValue, element, context) {
+function inputCheckboxUpdate(currentValue, element, context) {
   if (isArray(currentValue)) {
     element.checked = currentValue.indexOf(element.value) !== -1;
   } else {
@@ -819,35 +922,9 @@ function modelCheckbox(currentValue, element, context) {
   }
 }
 
-function modelInput(currentValue, element, context) {
+function inputTextareaUpdate(currentValue, element, context) {
   if (element.value !== currentValue) {
     element.value = currentValue;
-  }
-}
-
-function model(value, element, context) {
-  var currentValue = getObjectFromPath(context.state, value);
-  var tag = element.tagName.toLowerCase();
-  var type = element.type;
-
-  if (tag === 'select') {
-    modelSelect(currentValue, element, context);
-  } else if (tag === 'input' && type === 'radio') {
-    modelRadio(currentValue, element, context);
-  } else if (tag === 'input' && type === 'checkbox') {
-    modelCheckbox(currentValue, element, context);
-  } else if (tag === 'textarea' || tag === 'input') {
-    modelInput(currentValue, element, context);
-  } else {
-    // not support
-  }
-}
-
-function attachEvent(el, eventName, handler) {
-  if (el.addEventListener) {
-    el.addEventListener(eventName, handler, false);
-  } else if (el.attachEvent) {
-    el.attachEvent(eventName, handler);
   }
 }
 
@@ -865,7 +942,7 @@ function handleDirective(directive, value, element, context) {
       style(value, element, context);
       break;
     case 'model':
-      model(value, element, context);
+      model.update(value, element, context);
       break;
     default:
       if (HtmlBooleanAttributes.indexOf(directive) !== -1) {
@@ -881,70 +958,50 @@ function handleDirective(directive, value, element, context) {
   }
 }
 
-function bindDirective(directive, value, element, context) {
-  switch (directive) {
+function bindDirectiveModel(options) {
+  model.bind(options.element, options, options.context);
+}
+
+function bindDirectiveBind(options) {
+  var element = options.element;
+  element.setAttribute(options.argument, options.expression);
+}
+
+function bindDirectiveOn(options) {
+  attachEvent(options.element, options.argument, function handler() {
+    options.expression.call(options.context);
+  });
+}
+
+function bindDirectiveShow(options) {
+  options.element.style.display = options.expression ? '' : 'none';
+}
+
+function bindDirectiveText(options) {}
+
+function bindDirective(options) {
+  switch (options.name) {
     case 'model':
-      if (element.type === 'radio') {
-        attachEvent(element, 'change', function handleChange(event) {
-          var selectValue = event.currentTarget.value;
-          var currentState = deepClone(context.state);
-          setObjectFromPath(currentState, value, selectValue);
-          context.setState(currentState);
-        });
-      } else if (element.type === 'checkbox') {
-        attachEvent(element, 'change', function handleChange() {
-          var selectValue = event.currentTarget.value;
-          var currentState = deepClone(context.state);
-          var preValue = getObjectFromPath(currentState, value);
-          if (event.currentTarget.checked) {
-            if (preValue.indexOf(selectValue) === -1) {
-              preValue.push(selectValue);
-            }
-          } else {
-            var i = 0;
-            while (i < preValue.length) {
-              if (preValue[i] === selectValue) {
-                preValue.splice(i, 1);
-                break;
-              }
-              ++i;
-            }
-          }
-          context.setState(currentState);
-        });
-      } else if (element.tagName === 'SELECT') {
-        attachEvent(element, 'change', function handleInput() {
-          // 通过 path 设置 state
-          var currentState = deepClone(context.state);
-          if (element.multiple) {
-            var options = element.options;
-            var newValue = [];
-            for (var i = 0; i < options.length; ++i) {
-              if (options[i].selected) {
-                newValue.push(options[i].value);
-              }
-            }
-            setObjectFromPath(currentState, value, newValue);
-            context.setState(currentState);
-          } else {
-            setObjectFromPath(currentState, value, element.value);
-            context.setState(currentState);
-          }
-        });
-      } else {
-        attachEvent(element, 'input', function handleInput() {
-          // 通过 path 设置 state
-          var currentState = deepClone(context.state);
-          setObjectFromPath(currentState, value, element.value);
-          context.setState(currentState);
-        });
-      }
+      bindDirectiveModel(options);
+      break;
+    case 'bind':
+      bindDirectiveBind(options);
+      break;
+    case 'on':
+      bindDirectiveOn(options);
+      break;
+    case 'show':
+      bindDirectiveShow(options);
+      break;
+    case 'text':
+      bindDirectiveText(options);
       break;
     default:
+    // what the fuck ?
   }
 }
 
-function removeClassAttr(removeValue, element, context) {
+function removeStaticClass(removeValue, element, context) {
   if (isString(removeValue)) {
     removeClass(element, removeValue);
   } else if (isArray(removeValue)) {
@@ -961,7 +1018,7 @@ function removeClassAttr(removeValue, element, context) {
 function handleDirectiveRemove(directive, value, element, context) {
   switch (directive) {
     case 'staticClass':
-      removeClassAttr(value, element, context);
+      removeStaticClass(value, element, context);
       break;
   }
 }
@@ -1169,7 +1226,6 @@ function applyPatch(context, domNode, patch) {
   }
 }
 
-// @TODO 这里如何处理组件？
 function patchReorder(context, domNode, moves) {
   var removes = moves.removes;
   var inserts = moves.inserts;
@@ -1392,7 +1448,7 @@ function VNode(tagName, props, children, key) {
   this.nodeType = NodeTypes['VNODE'];
   this.tagName = tagName;
   this.props = props || {};
-  this.key = key ? String(key) : undefined; // key 用来标识节点，方便 diff
+  this.key = key ? String(key) : void 0; // key 用来标识节点，方便 diff
   var childNodes = [];
   children = children || [];
   for (var i = 0; i < children.length; ++i) {
@@ -1413,22 +1469,42 @@ function VNode(tagName, props, children, key) {
   this.count = count; // 记录子节点数，在 patch 的时候找到节点位置
 }
 
+function getPropType(prop) {
+  var type = {};
+  if (/^n-/.test(prop)) {
+    type.isDirective = true;
+    type.name = prop.slice(2);
+  } else if (/^:/.test(prop)) {
+    type.isDirective = true;
+    type.name = 'bind';
+    type.argument = prop.slice(1);
+  } else if (/^@/.test(prop)) {
+    type.isDirective = true;
+    type.name = 'on';
+    type.argument = prop.slice(1);
+  } else {
+    type.isDirective = false;
+  }
+  return type;
+}
+
 // vdom => dom
 VNode.prototype.$render = function renderVNodeToElement(context) {
   var element = createElement(this.tagName);
   var props = this.props;
   var nodeContext = this;
+  // 绑定指令
   for (var p in props) {
     if (props.hasOwnProperty(p)) {
-      if (/^n-/.test(p)) {
-        bindDirective(p.slice(2), props[p], element, context);
-        handleDirective(p.slice(2), props[p], element, context);
-      } else if (/^:/.test(p)) {
-        handleDirective(p.slice(1), props[p], element, context);
-      } else if (/^@/.test(p)) {
-        var eventName = p.slice(1);
-        var handler = props[p];
-        attachEvent(element, eventName, handler);
+      var propType = getPropType(p);
+      if (propType.isDirective) {
+        bindDirective({
+          name: propType.name,
+          argument: propType.argument,
+          expression: props[p],
+          element: element,
+          context: context
+        });
       } else {
         setAttr(element, p, props[p]);
       }
@@ -1571,32 +1647,18 @@ function rerender() {
   doNextTick();
 }
 
-var componentId = 1;
-
-// _init => 首次生成 vdom
-// $update => 重新生成 vdom => diff => patches => 更新 dom（不会重新生成 $root）
-// $render => vdom => 调用 vdom 的 $render 生成 dom（第一次调用 $render 之后才会有 $root）
-// $mount => $render => 将 $root 挂载到页面
-// setState => 更新 state 但不会立即更新 vdom => $update 此时才会更新
-
-// 因为是在应用内生成的组件，所以不需要用 uuid 算法，只需要保证在应用内唯一即可
-// componentId 保证 component 类型的唯一性，时间戳保证组件唯一性
-function uuid() {
-  return '$naive-component-' + componentId++ + '-' + new Date().getTime();
-}
-
 function emptyRender(h$$1) {
   return h$$1('');
 }
 
-function Naive(options) {
+function Component(options) {
   this.nodeType = NodeTypes['VCOMPONENT'];
   options = options || {};
-  this.name = options.name || '';
-  this.key = options.key || uuid();
+  // this.name = options.name || ''
+  // this.key = options.key || uuid()
   // @TODO 重复初始化？
   // debugger
-  this._hooks = {};
+  this._hooks = {}; // Lifecycle hooks
   if (options.hasOwnProperty('state')) {
     if (!isFunction(options.state)) {
       throw new NaiveException('state should be [Function]');
@@ -1625,7 +1687,7 @@ function Naive(options) {
       }
     }
   }
-  deepExtend(this.state, combineProps);
+  deepExtend(this.state, combineProps); // @TODO 去掉 deepExtend
   callHooks.call(this, 'beforeCreate');
   var context = this;
   var _vdomRender = options.render || emptyRender;
@@ -1680,7 +1742,7 @@ function Naive(options) {
   for (var _p2 in componentsOptions) {
     if (componentsOptions.hasOwnProperty(_p2)) {
       var componentDefine = componentsOptions[_p2] || {};
-      componentDefine.name = componentDefine.name || _p2;
+      // componentDefine.name = componentDefine.name || p
       componentDefine.parent = this;
       this.components[_p2] = createComponentCreator(this, componentDefine);
     }
@@ -1692,13 +1754,13 @@ function Naive(options) {
 
 function createComponentCreator(context, componentDefine) {
   return function createComponent(props, children, key) {
-    var newChild = new Naive(deepExtend({}, componentDefine, { props: props, key: key }));
+    var newChild = new Component(deepExtend({}, componentDefine, { props: props, key: key }));
     context._components[key] = newChild;
     return newChild;
   };
 }
 
-var prtt = Naive.prototype;
+var prtt = Component.prototype;
 
 prtt._init = function _init(options) {
   var methods = options.methods || {};
@@ -1724,13 +1786,14 @@ prtt._init = function _init(options) {
   this.$vdom = this.$vdomRender();
 };
 
-prtt.setState = function setState(state) {
-  if (state === this.state) {
-    throw new NaiveException('Never do `setState` with `this.state`');
+prtt.setState = function setState(state, callback) {
+  var s = this.state;
+  if (!this.prevState) {
+    this.prevState = simpleExtend({}, s);
   }
-  simpleExtend(this.state, state);
+  simpleExtend(s, isFunction(state) ? state(s, this.props) : state);
+  // @TODO callback 加入 renderCallbacks
   enqueueRender(this);
-  return this;
 };
 
 // update view: state => vdom => diff => patches => dom
@@ -1740,20 +1803,21 @@ prtt.$update = function $update() {
     // throw new NaiveException('VComponent must be mounted before update')
   }
   // console.log(this)
-  callHooks.call(this, 'beforeUpdate', [deepClone(this.state)]);
+  callHooks.call(this, 'beforeUpdate', []);
   var preVdom = this.$vdom;
   this.$vdom = this.$vdomRender();
   // console.log(preVdom, this.$vdom)
   var patches = diff(preVdom, this.$vdom);
   // console.log(patches)
   applyPatch(this, this.$root, patches);
-  callHooks.call(this, 'updated', [deepClone(this.state)]);
+  callHooks.call(this, 'updated', []);
   this._dirty = false;
   return this;
 };
 
 prtt.$nextTick = function $nextTick(callback) {
   nextTick(callback);
+  return this;
 };
 
 // render view: vdom => dom
@@ -1810,4 +1874,4 @@ prtt.$destroy = function $destroy() {
   }
 };
 
-export default Naive;
+export default Component;
